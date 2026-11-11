@@ -79,7 +79,7 @@
   </div>
   <div id="combo"></div>
   <div id="prompt"></div>
-  <div id="help">clique = combo · botão dir. = forte · Q = uppercut · C = esmagar · F = pegar · Shift = esquiva · Esc/P = pausa e controles</div>
+  <div id="help">clique = combo · botão dir. = forte · Q = uppercut · C = esmagar · F = pegar · B = beber · Shift = esquiva · Esc/P = pausa e controles</div>
   <div id="menu">
     <div class="panel">
       <h1 id="menuTitle">Ghostpunch Mini</h1>
@@ -87,6 +87,11 @@
       <button id="btnPlay">Jogar</button>
       <button id="btnRestart">Reiniciar luta</button>
       <div class="opt"><label for="optSens">Sensibilidade do mouse</label><input type="range" id="optSens" min="0.4" max="2.5" step="0.05" value="1"><span id="optSensV">1.00x</span></div>
+      <div class="opt" style="grid-template-columns:auto 1fr"><input type="checkbox" id="optFlicker" checked><label for="optFlicker">Luzes piscando (desligue se incomodar)</label></div>
+      <div class="opt" style="grid-template-columns:auto 1fr"><input type="checkbox" id="optSlow" checked><label for="optSlow">Câmera lenta nos golpes fortes (tecla T)</label></div>
+      <div class="opt" style="grid-template-columns:auto 1fr"><input type="checkbox" id="optStop" checked><label for="optStop">Congelar o jogo por um instante no impacto</label></div>
+      <div class="opt" style="grid-template-columns:auto 1fr"><input type="checkbox" id="optShadow" checked><label for="optShadow">Sombras (desligue se estiver travando)</label></div>
+      <div class="opt"><label for="optVol">Volume</label><input type="range" id="optVol" min="0" max="1" step="0.05" value="0.7"><span id="optVolV">70%</span></div>
       <div class="opt"><label for="optFov">Campo de visão</label><input type="range" id="optFov" min="60" max="110" step="1" value="80"><span id="optFovV">80°</span></div>
       <table>
         <tr><td>Mover</td><td>W A S D</td></tr>
@@ -96,8 +101,11 @@
         <tr><td>Uppercut (lança para cima)</td><td>Q</td></tr>
         <tr><td>Esmagar (onda em área)</td><td>C</td></tr>
         <tr><td>Pegar / soltar objeto</td><td>F (clique arremessa)</td></tr>
+        <tr><td>Beber cerveja (recupera vida)</td><td>B (perto da garrafa ou com ela na mão)</td></tr>
         <tr><td>Esquivar</td><td>Shift</td></tr>
         <tr><td>Pausar</td><td>Esc ou P</td></tr>
+        <tr><td>Mudo</td><td>M</td></tr>
+        <tr><td>Câmera lenta liga/desliga</td><td>T</td></tr>
         <tr><td>Reiniciar a luta</td><td>R</td></tr>
       </table>
       <p id="menuMsg"></p>

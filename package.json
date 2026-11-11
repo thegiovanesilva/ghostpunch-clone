@@ -1,0 +1,18 @@
+{
+  "name": "ghostpunch-mini",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Trabalho de Computação Gráfica - mini jogo em Three.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "three": "^0.187.0"
+  },
+  "devDependencies": {
+    "vite": "^8.3.7"
+  }
+}

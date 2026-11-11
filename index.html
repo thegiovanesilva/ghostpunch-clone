@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ghostpunch Mini</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #07060c; font-family: system-ui, sans-serif; }
+    canvas { display: block; }
+    #hud { position: fixed; top: 12px; left: 16px; color: #d9d4ff; font-size: 18px; text-shadow: 0 0 6px #000; pointer-events: none; }
+    #hud .bar { width: 200px; height: 12px; background: #2a2540; border: 1px solid #5b5390; margin-top: 4px; }
+    #hud .bar > div { height: 100%; width: 100%; background: #e0457b; transition: width .1s; }
+    #boss { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); width: min(560px, 70vw); text-align: center; color: #e8e4ff; pointer-events: none; }
+    #bossName { font-size: 15px; letter-spacing: 3px; text-transform: uppercase; text-shadow: 0 0 6px #000; margin-bottom: 4px; }
+    #bossBar { position: relative; height: 16px; background: #1a1428; border: 2px solid #8d86b8; }
+    #bossHp { height: 100%; width: 100%; background: #4fa8ff; transition: width .15s; }
+    #bossHp.p2 { background: #b06bff; }
+    #bossBar .mark { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 2px; background: #fff8; }
+    #cross { position: fixed; top: 50%; left: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%;
+             border: 2px solid #ffffffcc; box-shadow: 0 0 4px #000; pointer-events: none; }
+    #hurt { position: fixed; inset: 0; pointer-events: none; opacity: 0;
+            background: radial-gradient(ellipse at center, transparent 40%, #d0102a 120%); }
+    .warn { position: fixed; top: 0; bottom: 0; width: 22%; pointer-events: none; opacity: 0; transition: opacity .08s; }
+    #warnL { left: 0; background: linear-gradient(to right, #ff2a2acc, transparent); }
+    #warnR { right: 0; background: linear-gradient(to left, #ff2a2acc, transparent); }
+    #menu { position: fixed; inset: 0; display: flex; overflow-y: auto;
+            background: rgba(5,4,10,.72); backdrop-filter: blur(4px); color: #fff; }
+    #menu .panel { margin: auto; width: min(460px, 90vw); text-align: center; background: #14101f; border: 2px solid #5b5390; padding: 26px 30px; box-shadow: 0 0 40px #000; }
+    #menu h1 { margin: 0; font-size: 34px; letter-spacing: 3px; text-transform: uppercase; }
+    #menu #menuSub { margin: 6px 0 18px; color: #a9a2d6; font-size: 15px; }
+    #menu button { display: block; width: 100%; margin: 8px 0; padding: 12px; font-size: 18px; font-weight: 700; letter-spacing: 1px; cursor: pointer;
+                   color: #fff; background: #3a2d6b; border: 2px solid #8d86b8; }
+    #menu button:hover, #menu button:focus { background: #5a46a8; outline: none; }
+    #menu #btnPlay { background: #b3265e; border-color: #ff7ab0; }
+    #menu #btnPlay:hover, #menu #btnPlay:focus { background: #d43275; }
+    #menu .opt { display: grid; grid-template-columns: 1fr 1.2fr 3.4em; align-items: center; gap: 8px; margin: 14px 0 0; font-size: 14px; color: #d9d4ff; text-align: left; }
+    #menu .opt input { width: 100%; accent-color: #ff7ab0; }
+    #menu .opt span { text-align: right; color: #ffd1e6; font-variant-numeric: tabular-nums; }
+    #menu table { width: 100%; margin-top: 20px; border-collapse: collapse; font-size: 13px; color: #b8b2e0; text-align: left; }
+    #menu td { padding: 3px 0; border-top: 1px solid #2a2540; }
+    #menu td:first-child { color: #ffd1e6; width: 46%; }
+    #menu #menuMsg { margin: 12px 0 0; min-height: 1.2em; color: #ff9a9a; font-size: 13px; }
+    #moves { position: fixed; bottom: 36px; left: 50%; transform: translateX(-50%); display: flex; gap: 14px; pointer-events: none; }
+    .mv { width: 118px; text-align: center; color: #8d86b8; font-size: 11px; letter-spacing: 1px; }
+    .mv .track { height: 6px; background: #1a1428; border: 1px solid #5b5390; margin-top: 3px; }
+    .mv .track > div { height: 100%; width: 100%; background: #6d62a8; }
+    .mv.ready { color: #ffd1e6; }
+    .mv.ready .track > div { background: #ff7ab0; box-shadow: 0 0 8px #ff7ab0; }
+    #moveName { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); font-size: 28px; font-weight: 800; font-style: italic; letter-spacing: 3px;
+                color: #fff; text-shadow: 0 0 10px #ff2a8a, 0 3px 0 #5a0a30; pointer-events: none; opacity: 0; white-space: nowrap; }
+    #combo { position: fixed; top: 90px; right: 6%; font-size: 54px; font-weight: 800; color: #ffd24f; text-shadow: 0 0 10px #ff7a00, 0 3px 0 #7a3b00;
+             font-style: italic; pointer-events: none; opacity: 0; transition: opacity .15s; }
+    #prompt { position: fixed; top: 58%; left: 50%; transform: translateX(-50%); color: #fff; font-size: 18px; letter-spacing: 1px;
+              text-shadow: 0 0 6px #000, 0 2px 0 #000; pointer-events: none; }
+    #help { position: fixed; bottom: 12px; left: 16px; color: #8d86b8; font-size: 13px; pointer-events: none; }
+    #over { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column;
+            color: #fff; background: rgba(0,0,0,.65); font-size: 28px; }
+    #over small { font-size: 16px; margin-top: 10px; color: #bbb; }
+  </style>
+</head>
+<body>
+  <div id="hud">
+    Vida
+    <div class="bar"><div id="hp"></div></div>
+  </div>
+  <div id="boss">
+    <div id="bossName"></div>
+    <div id="bossBar"><div id="bossHp"></div><span class="mark"></span></div>
+  </div>
+  <div id="cross"></div>
+  <div id="hurt"></div>
+  <div id="warnL" class="warn"></div>
+  <div id="warnR" class="warn"></div>
+  <div id="moveName"></div>
+  <div id="moves">
+    <div class="mv" id="mvheavy">FORTE · botão dir. / E<div class="track"><div></div></div></div>
+    <div class="mv" id="mvupper">UPPERCUT · Q<div class="track"><div></div></div></div>
+    <div class="mv" id="mvslam">ESMAGAR · C<div class="track"><div></div></div></div>
+  </div>
+  <div id="combo"></div>
+  <div id="prompt"></div>
+  <div id="help">clique = combo · botão dir. = forte · Q = uppercut · C = esmagar · F = pegar · Shift = esquiva · Esc/P = pausa e controles</div>
+  <div id="menu">
+    <div class="panel">
+      <h1 id="menuTitle">Ghostpunch Mini</h1>
+      <p id="menuSub">Boss fight em primeira pessoa</p>
+      <button id="btnPlay">Jogar</button>
+      <button id="btnRestart">Reiniciar luta</button>
+      <div class="opt"><label for="optSens">Sensibilidade do mouse</label><input type="range" id="optSens" min="0.4" max="2.5" step="0.05" value="1"><span id="optSensV">1.00x</span></div>
+      <div class="opt"><label for="optFov">Campo de visão</label><input type="range" id="optFov" min="60" max="110" step="1" value="80"><span id="optFovV">80°</span></div>
+      <table>
+        <tr><td>Mover</td><td>W A S D</td></tr>
+        <tr><td>Olhar</td><td>Mouse</td></tr>
+        <tr><td>Socar (combo de 3)</td><td>Clique esquerdo ou Espaço</td></tr>
+        <tr><td>Soco forte</td><td>Botão direito ou E</td></tr>
+        <tr><td>Uppercut (lança para cima)</td><td>Q</td></tr>
+        <tr><td>Esmagar (onda em área)</td><td>C</td></tr>
+        <tr><td>Pegar / soltar objeto</td><td>F (clique arremessa)</td></tr>
+        <tr><td>Esquivar</td><td>Shift</td></tr>
+        <tr><td>Pausar</td><td>Esc ou P</td></tr>
+        <tr><td>Reiniciar a luta</td><td>R</td></tr>
+      </table>
+      <p id="menuMsg"></p>
+    </div>
+  </div>
+  <div id="over"><div id="overTitle"></div><small id="overSub"></small></div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

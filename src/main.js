@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createAudio } from './audio.js';
+import { t as tx, applyDom, setLang, getLang, savedChoice, saveChoice } from './i18n.js';
 
 // ============================================================
 // GHOSTPUNCH MINI - Etapa 1
@@ -80,7 +81,7 @@ const CFG = {
   beerSpawnEvery: 8,     // seg: nasce uma garrafa nova (mais rápido se a vida estiver baixa)
   // --- boss ---
   bossName: 'O Fantasma da Casa',
-  bossMaxHp: 660,       // (era 1200; -45%): luta longa mas menos arrastada
+  bossMaxHp: 300,       // (era 1200 -> 660 -> 300): ficou impossível de matar com 660
   bossScale: 1.8,
   bossRadius: 1.0,
   bossChaseSpeed: 2.4,
@@ -547,7 +548,7 @@ disposers.push(() => flashEl.remove());
 on(window, 'keydown', (e) => {
   keys[e.code] = true;
   if (e.code === 'KeyR') restart();
-  if (e.code === 'KeyT') { settings.slowmo = !settings.slowmo; if (!settings.slowmo) state.slow = 0; refreshOptionLabels(); saveSettings(); state.moveNameT = 1; elMoveName.textContent = settings.slowmo ? 'CÂMERA LENTA: LIGADA' : 'CÂMERA LENTA: DESLIGADA'; } // T = liga/desliga a câmera lenta
+  if (e.code === 'KeyT') { settings.slowmo = !settings.slowmo; if (!settings.slowmo) state.slow = 0; refreshOptionLabels(); saveSettings(); state.moveNameT = 1; elMoveName.textContent = tx(settings.slowmo ? 'slowOn' : 'slowOff'); } // T = liga/desliga a câmera lenta
   if (e.code === 'KeyM') { settings.muted = sfx.toggleMute(); refreshOptionLabels(); saveSettings(); } // M = mudo
   // P pausa / continua (Esc também pausa: o navegador solta o mouse sozinho)
   if (e.code === 'KeyP') { if (locked) document.exitPointerLock(); else if (state.started) lockMouse(); }
@@ -581,6 +582,7 @@ on(window, 'contextmenu', (e) => e.preventDefault());
 // Joystick flutuante à esquerda (vira as teclas WASD), arrastar o dedo na tela para olhar,
 // e botões para os golpes. Cada dedo é seguido pelo seu pointerId, então dá para andar, olhar e socar ao mesmo tempo.
 const touchBtns = {};
+let fsRefresh = null;
 function setupTouch() {
   const css = document.createElement('style');
   css.textContent = `
@@ -600,29 +602,42 @@ function setupTouch() {
     #tui .tb.main { background: rgba(179,38,94,.7); font-size: 14px; }
     #tpause { position: fixed; top: 10px; right: 10px; z-index: 5; width: 44px; height: 44px; border-radius: 10px; border: 2px solid rgba(255,255,255,.5); background: rgba(40,20,60,.6); color: #fff; font-size: 20px; display: none; }
     body.touch #tpause { display: block; }
+    #tfs { position: fixed; top: 10px; right: 62px; z-index: 5; width: 44px; height: 44px; border-radius: 10px; border: 2px solid rgba(255,255,255,.5); background: rgba(40,20,60,.6); color: #fff; font-size: 20px; display: none; }
+    body.touch.fsok #tfs { display: block; }
+    @media (max-height: 480px) { #tpause, #tfs { top: 6px; width: 38px; height: 38px; font-size: 17px; } #tfs { right: 54px; } #tpause { right: 8px; } }
     #rotate { position: fixed; inset: 0; z-index: 9; background: #07060c; color: #ffd1e6; display: none; align-items: center; justify-content: center; text-align: center; font-size: 20px; padding: 24px; }
     @media (orientation: portrait) { body.touch #rotate { display: flex; } }
     @media (max-height: 460px) { #menu .panel, #menu > div { max-height: 92vh; overflow-y: auto; } }
   `;
   document.head.appendChild(css);
-  const ui = document.createElement('div'); ui.id = 'tui';
+  const ui = document.createElement('div'); ui.id = 'tui'; ui.style.display = 'none'; // só aparece enquanto joga (touchUpdate)
   ui.innerHTML = `<div class="zone" id="tz-look"></div><div class="zone" id="tz-move"></div><div class="stick" id="tstick"><i></i></div>`;
   const defs = [ // [id, rótulo, direita, baixo, tamanho, classe]
     ['jab', 'SOCO', 20, 20, 96, 'main'], ['heavy', 'FORTE', 126, 28, 68, ''], ['upper', 'UPPER', 24, 128, 62, ''],
     ['slam', 'ESMAGAR', 94, 114, 62, ''], ['dodge', 'ESQUIVA', 164, 106, 58, ''],
   ];
   for (const [id, label, r, b, size, cls] of defs) {
-    const el = document.createElement('button'); el.className = 'tb ' + cls; el.textContent = label; touchBtns[id] = el;
+    const el = document.createElement('button'); el.className = 'tb ' + cls; el.dataset.tb = id; el.textContent = tx('tb.' + id); touchBtns[id] = el;
     el.style.cssText = `right:${r}px;bottom:${b}px;width:${size}px;height:${size}px`; ui.appendChild(el);
   }
   for (const [id, label, l, b] of [['grab', 'PEGAR', 22, 196], ['beer', 'BEBER', 92, 196]]) {
-    const el = document.createElement('button'); el.className = 'tb'; el.textContent = label; touchBtns[id] = el;
+    const el = document.createElement('button'); el.className = 'tb'; el.dataset.tb = id; el.textContent = tx('tb.' + id); touchBtns[id] = el;
     el.style.cssText = `left:${l}px;bottom:${b}px;width:58px;height:58px`; ui.appendChild(el);
   }
   document.body.appendChild(ui);
   const pause = document.createElement('button'); pause.id = 'tpause'; pause.textContent = '❚❚'; document.body.appendChild(pause);
-  const rot = document.createElement('div'); rot.id = 'rotate'; rot.textContent = 'Gire o celular para o modo paisagem (deitado) para jogar'; document.body.appendChild(rot);
-  disposers.push(() => { css.remove(); ui.remove(); pause.remove(); rot.remove(); });
+  // tela cheia: botão no jogo e no menu (o iPhone não permite tela cheia fora de vídeo, então o botão some lá)
+  const fsOk = !!(document.documentElement.requestFullscreen && document.fullscreenEnabled);
+  if (fsOk) document.body.classList.add('fsok');
+  const fsBtn = document.createElement('button'); fsBtn.id = 'tfs'; document.body.appendChild(fsBtn);
+  const fsMenu = document.getElementById('btnFs');
+  const toggleFs = () => { try { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen({ navigationUI: 'hide' }).then(() => screen.orientation?.lock?.('landscape').catch(() => {})).catch(() => {}); } catch { /* ignora */ } };
+  const refreshFs = () => { const on = !!document.fullscreenElement; fsBtn.textContent = on ? '⤡' : '⤢'; fsBtn.title = tx(on ? 'fsExit' : 'fsEnter'); if (fsMenu) fsMenu.textContent = tx(on ? 'fsExit' : 'fsEnter'); };
+  on(fsBtn, 'pointerdown', (e) => { e.preventDefault(); toggleFs(); });
+  if (fsMenu) on(fsMenu, 'click', toggleFs);
+  on(document, 'fullscreenchange', refreshFs); refreshFs(); fsRefresh = refreshFs;
+  const rot = document.createElement('div'); rot.id = 'rotate'; rot.dataset.i18n = 'rotate'; rot.textContent = tx('rotate'); document.body.appendChild(rot);
+  disposers.push(() => { css.remove(); ui.remove(); pause.remove(); rot.remove(); fsBtn.remove(); });
 
   const act = { jab: () => startPunch('jab'), heavy: () => startPunch('heavy'), upper: () => startPunch('upper'), slam: () => startPunch('slam'), dodge: () => startDodge(), grab: () => interact(), beer: () => drinkBeer() };
   for (const id in act) {
@@ -702,9 +717,9 @@ function updateMenu() {
   const paused = !locked && !state.over;
   elMenu.style.display = paused ? 'flex' : 'none';
   if (!paused) return;
-  elMenuTitle.textContent = state.started ? 'Pausado' : 'Ghostpunch Mini';
-  elMenuSub.textContent = state.started ? 'O jogo está parado' : 'Boss fight em primeira pessoa';
-  elBtnPlay.textContent = state.started ? 'Continuar' : 'Jogar';
+  elMenuTitle.textContent = state.started ? tx('paused') : tx('title');
+  elMenuSub.textContent = state.started ? tx('stopped') : tx('sub');
+  elBtnPlay.textContent = state.started ? tx('resume') : tx('play');
   elBtnRestart.style.display = state.started ? '' : 'none';
 }
 function refreshOptionLabels() {
@@ -714,10 +729,21 @@ function refreshOptionLabels() {
   elOptSlow.checked = settings.slowmo;
   elOptStop.checked = settings.hitstop;
   elOptShadow.checked = settings.shadows;
-  elOptVol.value = settings.vol;   elOptVolV.textContent = settings.muted ? 'mudo' : Math.round(settings.vol * 100) + '%';
+  elOptVol.value = settings.vol;   elOptVolV.textContent = settings.muted ? tx('muted') : Math.round(settings.vol * 100) + '%';
 }
 refreshOptionLabels();
 if (!settings.shadows) applyShadows();
+// idioma: aplica nos textos fixos do HTML e nos botões de toque; o seletor do menu troca na hora
+const elOptLang = document.getElementById('optLang');
+function applyLang() {
+  applyDom();
+  elOptLang.options[0].textContent = tx('auto'); elOptLang.value = savedChoice();
+  document.title = tx('title');
+  for (const k in touchBtns) touchBtns[k].textContent = tx('tb.' + k);
+  fsRefresh?.();
+  elBossName.textContent = tx('boss');
+}
+on(elOptLang, 'change', () => { saveChoice(elOptLang.value); setLang(elOptLang.value === 'auto' ? undefined : elOptLang.value); applyLang(); });
 
 on(document, 'pointerlockchange', () => {
   locked = document.pointerLockElement === canvas;
@@ -725,7 +751,7 @@ on(document, 'pointerlockchange', () => {
   updateMenu();
 });
 on(document, 'pointerlockerror', () => {
-  elMenuMsg.textContent = 'O navegador não deixou capturar o mouse agora. Espere um instante e clique de novo.';
+  elMenuMsg.textContent = tx('lockerr');
 });
 on(elBtnPlay, 'click', lockMouse);
 on(elBtnRestart, 'click', () => { restart(); lockMouse(); });
@@ -973,7 +999,7 @@ function startPunch(kind = 'jab') {
   if (M.hands === 'alt') state.nextHand ^= 1;
   state.atk = { kind, t: 0, hand, hitDone: false };
   state.moveNameT = 0.8;
-  elMoveName.textContent = M.name;
+  elMoveName.textContent = tx('mv.' + kind);
   if (M.area) sfx.whoosh(0.4, M.hitAt * M.dur * 0.5);
   else sfx.whoosh({ jab: 0.3, cross: 0.6, heavy: 1, upper: 0.75 }[kind], M.hitAt * M.dur * 0.45);
 }
@@ -1569,7 +1595,7 @@ function pushPlayerOutOfProps() {
 }
 
 // ---------- Pegar e arremessar objetos (tecla F) ----------
-const LABELS = { chair: 'cadeira', crate: 'caixa', vase: 'vaso', plank: 'tábua', barrel: 'barril', tv: 'TV', ball: 'bola de boliche', pillow: 'almofada', beer: 'garrafa de cerveja' };
+const labelOf = (type) => tx('p.' + type);
 const SMALL_TYPES = Object.keys(PROP_TYPES).filter((k) => PROP_TYPES[k].size === 'small' && k !== 'plank' && k !== 'beer');
 const elPrompt = document.getElementById('prompt');
 const throwDir = new THREE.Vector3();
@@ -1599,7 +1625,7 @@ function drinkBeer() {
   const before = state.hp;
   state.hp = Math.min(CFG.playerMaxHp, state.hp + CFG.beerHeal);
   sfx.drink();
-  state.moveNameT = 1; elMoveName.textContent = state.hp > before ? '+' + Math.round(state.hp - before) + ' VIDA' : 'VIDA CHEIA';
+  state.moveNameT = 1; elMoveName.textContent = state.hp > before ? tx('heal', Math.round(state.hp - before)) : tx('full');
 }
 function setCastShadow(obj, on) { obj.traverse((m) => { if (m.isMesh) m.castShadow = on; }); }
 
@@ -1672,9 +1698,8 @@ function updateHeld(t) {
   }
   let msg = '';
   if (state.over) msg = '';
-  else if (state.held) msg = state.held.type === 'beer' ? 'Clique = ARREMESSAR  ·  B = beber (+' + CFG.beerHeal + ')  ·  F = soltar' : 'Clique = ARREMESSAR  ·  F = soltar';
-  else { const g = findGrabbable(); if (g) msg = g.type === 'beer' ? 'B = BEBER (+' + CFG.beerHeal + ' vida)  ·  F = pegar para arremessar' : 'F = pegar ' + LABELS[g.type]; }
-  if (touchMode) msg = msg.replace(/Clique = /g, 'SOCO = ').replace(/\bB = /g, 'BEBER = ').replace(/\bF = /g, 'PEGAR = ');
+  else if (state.held) msg = state.held.type === 'beer' ? tx(touchMode ? 'prHeldBeerT' : 'prHeldBeer', CFG.beerHeal) : tx(touchMode ? 'prHeldT' : 'prHeld');
+  else { const g = findGrabbable(); if (g) msg = g.type === 'beer' ? tx(touchMode ? 'prBeerT' : 'prBeer', CFG.beerHeal) : tx(touchMode ? 'prGrabT' : 'prGrab', labelOf(g.type)); }
   if (elPrompt.textContent !== msg) elPrompt.textContent = msg;
 }
 
@@ -1712,13 +1737,14 @@ const elOverSub = document.getElementById('overSub');
 const elMv = { heavy: document.getElementById('mvheavy'), upper: document.getElementById('mvupper'), slam: document.getElementById('mvslam') };
 const elCombo = document.getElementById('combo');
 const elMoveName = document.getElementById('moveName');
-elBossName.textContent = CFG.bossName;
+elBossName.textContent = tx('boss');
+applyLang();
 function updateHud() {
   elHp.style.width = Math.max(0, state.hp / CFG.playerMaxHp * 100) + '%';
   elBossHp.style.width = Math.max(0, B.hp / CFG.bossMaxHp * 100) + '%';
   elBossHp.classList.toggle('p2', B.phase2);
   for (const k in elMv) {
-    elMv[k].firstElementChild.firstElementChild.style.width = (100 - state.cd[k] / CFG.cooldowns[k] * 100) + '%';
+    elMv[k].querySelector('.track > div').style.width = (100 - state.cd[k] / CFG.cooldowns[k] * 100) + '%';
     elMv[k].classList.toggle('ready', state.cd[k] <= 0);
   }
   elMoveName.style.opacity = Math.min(1, state.moveNameT / 0.4);
@@ -1726,8 +1752,8 @@ function updateHud() {
   elCombo.style.opacity = state.combo >= 2 ? Math.min(1, state.comboT) : 0;
   updateMenu(); touchUpdate();
   if (state.over) {
-    elOverTitle.textContent = state.over === 'win' ? 'Vitória!' : 'Você foi derrotado';
-    elOverSub.textContent = (state.over === 'win' ? 'Tempo: ' + state.time.toFixed(1) + 's · ' : '') + (touchMode ? 'Toque para tentar de novo' : 'Pressione R para tentar de novo');
+    elOverTitle.textContent = tx(state.over === 'win' ? 'win' : 'lose');
+    elOverSub.textContent = (state.over === 'win' ? tx('time', state.time.toFixed(1)) : '') + tx(touchMode ? 'retryT' : 'retry');
     elOver.style.display = 'flex';
   } else {
     elOver.style.display = 'none';

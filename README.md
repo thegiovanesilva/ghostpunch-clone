@@ -542,6 +542,26 @@ Pedido: jogar no celular; o jogo vai para a Vercel para um amigo testar.
 - Vida do fantasma: 1200 → **660** (-45%). Dano do soco forte: 6 → **7,2** (+20%). Ambos em `CFG` (`bossMaxHp`, `heavyDamage`).
 - **Não testável aqui**: se a duração da luta ficou boa; só jogando.
 
+### Etapa 23 — Vida do fantasma 660 → 300
+
+- O teste com amigos mostrou que 660 ainda era "impossível de matar". Vida do fantasma: **300** (`bossMaxHp`). A fase 2 continua aos 50%.
+- **Não testável aqui**: o ponto certo da duração da luta; se ainda estiver difícil, é só baixar mais esse valor.
+
+### Etapa 24 — Idiomas (pt/en/es) e barras menores no celular
+
+- Novo `src/i18n.js` com os textos em **português, inglês e espanhol**. O idioma vem do aparelho (`navigator.languages`; qualquer outro idioma cai em inglês), pode ser forçado com `?lang=pt|en|es` e há um seletor **Idioma** no menu (Automático/Português/English/Español) que troca na hora e fica salvo no navegador. Textos fixos do HTML usam `data-i18n`; os do jogo usam `tx(chave, ...)` (a função é importada como `tx` porque `t` é parâmetro de tempo em várias funções).
+- Traduzidos: menu, controles (teclado e toque), dicas na tela (pegar/beber/arremessar), nomes dos golpes, aviso de rotação, fim de jogo, nome do chefe, rótulos de objetos. O áudio não tem texto.
+- Celular em paisagem (`max-height: 480px`): barra de vida do jogador e do chefe bem menores (96 px e ~300 px), textos e dicas reduzidos para não cobrir a tela.
+- **Bugs achados nos testes e corrigidos**: a camada de toque cobria o menu se aparecesse antes do primeiro quadro (agora nasce escondida); a barra de recarga dos golpes quebrou ao trocar a estrutura do HTML.
+- **Testado**: locales es-MX, en-US, pt-BR e fr-FR (cai em inglês) em emulação de celular, troca pelo seletor, sem erros de console; captura da tela conferida.
+- **Não testável aqui**: revisão das traduções por falante nativo (fiz o melhor possível, em espanhol neutro), tamanho das barras num celular real, e o texto do menu em telas muito pequenas.
+
+### Etapa 25 — Botão de tela cheia no celular
+
+- Botão ⤢/⤡ ao lado do ❚❚ (no jogo) e botão "Tela cheia / Sair da tela cheia" no menu de pausa; o ícone e o texto acompanham o estado (`fullscreenchange`), inclusive quando o usuário sai pelo gesto do sistema. Traduzido em pt/en/es.
+- No iPhone o Safari não permite tela cheia fora de vídeo (`document.fullscreenEnabled` é falso), então os botões não aparecem lá.
+- **Testado**: emulação de celular: entra e sai da tela cheia pelo botão, ícone/texto mudam, sem erros. **Não testável aqui**: comportamento em Android/iOS reais.
+
 ## Próximas etapas (a decidir)
 
 - Jogar e equilibrar: `bossMaxHp`, `punchDamage`, `heavyDamage`, `wallSlamDamage`, `heavyCooldown`, `propLaunch`, `throwSpeed` no `CFG` (o hot reload ajuda).

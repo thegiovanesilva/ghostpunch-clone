@@ -537,6 +537,11 @@ Pedido: jogar no celular; o jogo vai para a Vercel para um amigo testar.
 - **Testado**: emulação de celular em paisagem (667x375) com toques reais via CDP: joystick + olhar ao mesmo tempo (andou e girou a câmera), botão SOCO inicia golpe, pausa abre o menu, sem erros de console; captura de tela conferida.
 - **Não testável aqui**: desempenho real em celular de verdade, conforto e posição dos botões, áudio no iOS (depende do toque em Jogar para liberar), tela cheia no iPhone, e se o joystick/olhar fica bom nas mãos. Se travar no aparelho do seu amigo, as sombras já estão desligadas; reduzir mais exigiria baixar a resolução.
 
+### Etapa 22 — Ajuste de balanceamento
+
+- Vida do fantasma: 1200 → **660** (-45%). Dano do soco forte: 6 → **7,2** (+20%). Ambos em `CFG` (`bossMaxHp`, `heavyDamage`).
+- **Não testável aqui**: se a duração da luta ficou boa; só jogando.
+
 ## Próximas etapas (a decidir)
 
 - Jogar e equilibrar: `bossMaxHp`, `punchDamage`, `heavyDamage`, `wallSlamDamage`, `heavyCooldown`, `propLaunch`, `throwSpeed` no `CFG` (o hot reload ajuda).

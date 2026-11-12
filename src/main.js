@@ -22,7 +22,7 @@ const CFG = {
   // --- soco forte ---
   heavyDuration: 0.65,   // carga (puxa o braço) + golpe
   heavyHitAt: 0.68,      // fração da animação em que o golpe acerta
-  heavyDamage: 6,
+  heavyDamage: 7.2,   // (era 6; +20%)
   cooldowns: { heavy: 1.8, upper: 1.4, slam: 4.0 }, // recarga dos golpes especiais (s)
   slamRadius: 4.5,       // alcance do esmagar (área ao redor do jogador)
   // --- FÍSICA DO ARREMESSO (boss vira um corpo rígido: voa, quica, rola e atravessa paredes de gesso) ---
@@ -80,7 +80,7 @@ const CFG = {
   beerSpawnEvery: 8,     // seg: nasce uma garrafa nova (mais rápido se a vida estiver baixa)
   // --- boss ---
   bossName: 'O Fantasma da Casa',
-  bossMaxHp: 1200,      // 10x mais vida: a luta é longa e engraçada (cada soco é uma fração pequena)
+  bossMaxHp: 660,       // (era 1200; -45%): luta longa mas menos arrastada
   bossScale: 1.8,
   bossRadius: 1.0,
   bossChaseSpeed: 2.4,

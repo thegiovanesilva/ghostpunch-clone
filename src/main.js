@@ -68,6 +68,13 @@ const CFG = {
   smashSelfDamage: 2,    // dano no boss ao ser arremessado contra móveis
   propSpawnEvery: 6,     // seg: cai uma caixa do teto se houver poucos objetos
   minSmallProps: 10,
+  // --- PISCADA (o fantasma some e reaparece, quase sempre atrás do jogador) ---
+  blinkChance: 0.35,     // chance de piscar em vez de atacar direto quando termina de perseguir (fase 2: 0.5)
+  blinkBehind: 0.7,      // chance de reaparecer ATRÁS do jogador (senão, num ponto qualquer ao redor)
+  blinkVanish: 0.45,     // seg: some (pisca e encolhe)
+  blinkHidden: [0.6, 1.3], // seg invisível (sussurro avisa onde)
+  blinkAppear: 0.5,      // seg: reaparece (vulnerável) antes de atacar
+  blinkCooldown: 7,      // seg mínimos entre piscadas
   beerHeal: 25,          // vida recuperada ao beber uma garrafa de cerveja (tecla B)
   beerMax: 8,            // máximo de garrafas no mapa
   beerSpawnEvery: 8,     // seg: nasce uma garrafa nova (mais rápido se a vida estiver baixa)
@@ -81,8 +88,16 @@ const CFG = {
   bossDashSpeed: 14,
   bossDashTime: 0.5,
   bossRecover: 1.3,     // fica atordoado: leva dano dobrado
-  bossContactDamage: 6,
-  bossDashDamage: 18,
+  bossContactDamage: 3,   // (reduzido: era 6)
+  bossDashDamage: 9,      // (reduzido: era 18)
+  // --- habilidades especiais (Etapa 20) ---
+  specialCooldown: 9,     // seg mínimos entre teto / possessão / apagão (fase 2: 6)
+  specialChance: 0.5,     // chance de usar uma especial ao fim da perseguição
+  ceilCrawl: 3.0,         // seg rastejando no teto antes de mirar
+  ceilAim: 0.9,           // seg parado em cima do alvo (mancha no chão avisa)
+  ceilDropDamage: 12, ceilDropRadius: 3.4,
+  possessMax: 3, possessDamage: 6, possessSpeed: 24,
+  blackoutDur: [4, 6],    // seg de escuro
   phase2At: 0.5,        // abaixo de 50% de vida: mais rápido e agressivo
 };
 
@@ -104,8 +119,12 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x07060c);
 scene.fog = new THREE.Fog(0x07060c, 16, 46);
 
+// Celular/tablet: controles na tela (joystick + botões). Também dá para forçar com ?touch na URL.
+const touchMode = new URLSearchParams(location.search).has('touch') || matchMedia('(hover: none) and (pointer: coarse)').matches;
+if (touchMode) document.body.classList.add('touch');
+
 // Opções do jogador (menu de pausa), guardadas no navegador
-const settings = { sens: 1, fov: 80, vol: 0.7, muted: false, flicker: true, slowmo: true, hitstop: true, shadows: true };
+const settings = { sens: 1, fov: 80, vol: 0.7, muted: false, flicker: true, slowmo: true, hitstop: true, shadows: !touchMode }; // no celular as sombras começam desligadas
 try {
   const saved = JSON.parse(localStorage.getItem('ghostpunch-settings') || '{}');
   if (saved.sens) settings.sens = saved.sens;
@@ -116,6 +135,7 @@ try {
   if (saved.slowmo === false) settings.slowmo = false;
   if (saved.hitstop === false) settings.hitstop = false;
   if (saved.shadows === false) settings.shadows = false;
+  if (saved.shadows === true) settings.shadows = true;
 } catch { /* sem armazenamento: usa o padrão */ }
 function saveSettings() { try { localStorage.setItem('ghostpunch-settings', JSON.stringify(settings)); } catch { /* ignora */ } }
 
@@ -137,7 +157,7 @@ const renderer = new THREE.WebGLRenderer(reuse
   ? { canvas: hot.data.canvas, context: hot.data.gl, antialias: true }
   : { antialias: true });
 renderer.setSize(innerWidth, innerHeight);
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5)); // (2 deixava pesado em telas de alta densidade)
+renderer.setPixelRatio(Math.min(devicePixelRatio, touchMode ? 1.25 : 1.5)); // (2 deixava pesado em telas de alta densidade)
 renderer.shadowMap.enabled = true;
 if (!renderer.domElement.isConnected) document.body.appendChild(renderer.domElement);
 
@@ -557,6 +577,94 @@ on(window, 'mousedown', (e) => {
 });
 on(window, 'contextmenu', (e) => e.preventDefault());
 
+// ---------- Controles de toque (celular) ----------
+// Joystick flutuante à esquerda (vira as teclas WASD), arrastar o dedo na tela para olhar,
+// e botões para os golpes. Cada dedo é seguido pelo seu pointerId, então dá para andar, olhar e socar ao mesmo tempo.
+const touchBtns = {};
+function setupTouch() {
+  const css = document.createElement('style');
+  css.textContent = `
+    body.touch { touch-action: none; overscroll-behavior: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+    body.touch .kbonly, body.touch #moves, body.touch #help { display: none !important; }
+    body:not(.touch) .touchonly { display: none !important; }
+    #tui { position: fixed; inset: 0; z-index: 3; touch-action: none; }
+    #tui .zone { position: absolute; touch-action: none; }
+    #tz-look { inset: 0; }
+    #tz-move { left: 0; bottom: 0; width: 42%; height: 72%; }
+    #tui .stick { position: absolute; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%; border: 2px solid rgba(255,255,255,.35); background: rgba(255,255,255,.08); display: none; pointer-events: none; }
+    #tui .stick i { position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; margin: -26px 0 0 -26px; border-radius: 50%; background: rgba(255,122,176,.55); border: 2px solid rgba(255,255,255,.6); }
+    #tui .tb { position: absolute; border-radius: 50%; border: 2px solid rgba(255,255,255,.55); background: rgba(40,20,60,.55); color: #fff; font: 800 11px system-ui, sans-serif; letter-spacing: .5px;
+               display: flex; align-items: center; justify-content: center; text-align: center; touch-action: none; padding: 0; }
+    #tui .tb:active, #tui .tb.down { background: rgba(255,122,176,.75); }
+    #tui .tb.cd { opacity: .45; }
+    #tui .tb.main { background: rgba(179,38,94,.7); font-size: 14px; }
+    #tpause { position: fixed; top: 10px; right: 10px; z-index: 5; width: 44px; height: 44px; border-radius: 10px; border: 2px solid rgba(255,255,255,.5); background: rgba(40,20,60,.6); color: #fff; font-size: 20px; display: none; }
+    body.touch #tpause { display: block; }
+    #rotate { position: fixed; inset: 0; z-index: 9; background: #07060c; color: #ffd1e6; display: none; align-items: center; justify-content: center; text-align: center; font-size: 20px; padding: 24px; }
+    @media (orientation: portrait) { body.touch #rotate { display: flex; } }
+    @media (max-height: 460px) { #menu .panel, #menu > div { max-height: 92vh; overflow-y: auto; } }
+  `;
+  document.head.appendChild(css);
+  const ui = document.createElement('div'); ui.id = 'tui';
+  ui.innerHTML = `<div class="zone" id="tz-look"></div><div class="zone" id="tz-move"></div><div class="stick" id="tstick"><i></i></div>`;
+  const defs = [ // [id, rótulo, direita, baixo, tamanho, classe]
+    ['jab', 'SOCO', 20, 20, 96, 'main'], ['heavy', 'FORTE', 126, 28, 68, ''], ['upper', 'UPPER', 24, 128, 62, ''],
+    ['slam', 'ESMAGAR', 94, 114, 62, ''], ['dodge', 'ESQUIVA', 164, 106, 58, ''],
+  ];
+  for (const [id, label, r, b, size, cls] of defs) {
+    const el = document.createElement('button'); el.className = 'tb ' + cls; el.textContent = label; touchBtns[id] = el;
+    el.style.cssText = `right:${r}px;bottom:${b}px;width:${size}px;height:${size}px`; ui.appendChild(el);
+  }
+  for (const [id, label, l, b] of [['grab', 'PEGAR', 22, 196], ['beer', 'BEBER', 92, 196]]) {
+    const el = document.createElement('button'); el.className = 'tb'; el.textContent = label; touchBtns[id] = el;
+    el.style.cssText = `left:${l}px;bottom:${b}px;width:58px;height:58px`; ui.appendChild(el);
+  }
+  document.body.appendChild(ui);
+  const pause = document.createElement('button'); pause.id = 'tpause'; pause.textContent = '❚❚'; document.body.appendChild(pause);
+  const rot = document.createElement('div'); rot.id = 'rotate'; rot.textContent = 'Gire o celular para o modo paisagem (deitado) para jogar'; document.body.appendChild(rot);
+  disposers.push(() => { css.remove(); ui.remove(); pause.remove(); rot.remove(); });
+
+  const act = { jab: () => startPunch('jab'), heavy: () => startPunch('heavy'), upper: () => startPunch('upper'), slam: () => startPunch('slam'), dodge: () => startDodge(), grab: () => interact(), beer: () => drinkBeer() };
+  for (const id in act) {
+    on(touchBtns[id], 'pointerdown', (e) => { e.preventDefault(); touchBtns[id].setPointerCapture?.(e.pointerId); touchBtns[id].classList.add('down');
+      if (state.over) { restart(); return; }
+      if (locked) act[id](); });
+    on(touchBtns[id], 'pointerup', () => touchBtns[id].classList.remove('down'));
+    on(touchBtns[id], 'pointercancel', () => touchBtns[id].classList.remove('down'));
+  }
+  // joystick flutuante
+  const zm = ui.querySelector('#tz-move'), st = ui.querySelector('#tstick'), knob = st.firstElementChild;
+  let mid = null, ox = 0, oy = 0;
+  const setKeys = (dx, dy) => { keys.KeyA = dx < -0.35; keys.KeyD = dx > 0.35; keys.KeyW = dy < -0.35; keys.KeyS = dy > 0.35; };
+  on(zm, 'pointerdown', (e) => { if (mid !== null) return; mid = e.pointerId; zm.setPointerCapture?.(e.pointerId); ox = e.clientX; oy = e.clientY;
+    st.style.display = 'block'; st.style.left = ox + 'px'; st.style.top = oy + 'px'; knob.style.transform = ''; });
+  on(zm, 'pointermove', (e) => { if (e.pointerId !== mid) return;
+    let dx = e.clientX - ox, dy = e.clientY - oy; const R = 55, l = Math.hypot(dx, dy);
+    if (l > R) { dx *= R / l; dy *= R / l; }
+    knob.style.transform = `translate(${dx}px,${dy}px)`; setKeys(dx / R, dy / R); });
+  const endMove = (e) => { if (e.pointerId !== mid) return; mid = null; st.style.display = 'none'; setKeys(0, 0); };
+  on(zm, 'pointerup', endMove); on(zm, 'pointercancel', endMove);
+  // olhar: arrastar o dedo em qualquer lugar fora do joystick e dos botões
+  const zl = ui.querySelector('#tz-look');
+  let lid = null, lx = 0, ly = 0;
+  on(zl, 'pointerdown', (e) => { if (state.over) { restart(); return; } if (lid !== null) return; lid = e.pointerId; zl.setPointerCapture?.(e.pointerId); lx = e.clientX; ly = e.clientY; });
+  on(zl, 'pointermove', (e) => { if (e.pointerId !== lid || !locked) return;
+    look.yaw -= (e.clientX - lx) * 0.0052 * settings.sens; look.pitch -= (e.clientY - ly) * 0.0052 * settings.sens;
+    look.pitch = THREE.MathUtils.clamp(look.pitch, -1.35, 1.35); lx = e.clientX; ly = e.clientY; });
+  const endLook = (e) => { if (e.pointerId === lid) lid = null; };
+  on(zl, 'pointerup', endLook); on(zl, 'pointercancel', endLook);
+  // pausa
+  on(pause, 'pointerdown', (e) => { e.preventDefault(); locked = false; setKeys(0, 0); updateMenu(); });
+  on(document, 'visibilitychange', () => { if (document.hidden && locked) { locked = false; setKeys(0, 0); updateMenu(); } });
+}
+if (touchMode) setupTouch();
+function touchUpdate() { // recarga dos golpes nos botões
+  if (!touchMode) return;
+  for (const k of ['heavy', 'upper', 'slam']) touchBtns[k]?.classList.toggle('cd', state.cd[k] > 0);
+  const ui = document.getElementById('tui'); if (ui) ui.style.display = (locked || state.over) ? 'block' : 'none';
+  const tp = document.getElementById('tpause'); if (tp) tp.style.visibility = locked ? 'visible' : 'hidden';
+}
+
 // ---------- Menu de pausa ----------
 // O jogo está PAUSADO sempre que o mouse não está capturado (Esc, P, trocar de janela ou antes do primeiro clique).
 const elMenu = document.getElementById('menu');
@@ -583,6 +691,11 @@ function applyShadows() { // sombras são o recurso mais caro: desligar ajuda mu
 function lockMouse() {
   elMenuMsg.textContent = '';
   sfx.start(); // o clique do jogador libera o áudio
+  if (touchMode) { // sem Pointer Lock no celular: "locked" passa a significar "jogando"
+    locked = true; state.started = true; updateMenu();
+    try { document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => {}); screen.orientation?.lock?.('landscape').catch(() => {}); } catch { /* ignora */ }
+    return;
+  }
   canvas.requestPointerLock?.();
 }
 function updateMenu() {
@@ -740,6 +853,12 @@ function animateGhost(dt, t) {
     armX = -1.5 * k + Math.sin(t * 40) * 0.06 * k; armSpread = 0.05; lean = 0.12 + 0.35 * k; headLoll = 0; ghostAnim.headZ += (Math.sin(t * 50) * 0.08 - ghostAnim.headZ) * 0.5;
   } else if (B.mode === 'dash') {            // avanço: braços esticados à frente, em garras
     armX = -1.75; armSpread = 0.02; lean = 0.55; headLoll = 0;
+  } else if (B.mode === 'ceil') {            // rasteja no teto: garras estendidas
+    armX = -1.9 + Math.sin(t * 14) * 0.25; armSpread = 0.35; lean = 0.3; headLoll = 0;
+  } else if (B.mode === 'possess') {         // braços erguidos, tremendo, controlando os móveis
+    armX = -2.7 + Math.sin(t * 38) * 0.08; armSpread = 0.6; lean = -0.1; headLoll = 0;
+  } else if (B.mode === 'drop') {
+    armX = -2.4; armSpread = 0.9; lean = 0.2; headLoll = 0;
   } else if (B.mode === 'stun') {            // tonto: braços soltos, cabeça mole para o lado
     armX = 0.25 + Math.sin(t * 9) * 0.25; armSpread = 0.5; lean = -0.1; headLoll = 0.75;
   } else if (B.mode === 'dying') {
@@ -788,10 +907,20 @@ const B = {
   wallCD: 0, ceilCD: 0, trailT: 0,
   hitOuter: false,
   grounded: true,
+  sub: 'approach', subT: 0, circDir: 1, mv: new THREE.Vector3(), ph1: Math.random() * 6.28, ph2: Math.random() * 6.28, yaw: 0,
+  blinkCD: 0, blinkDest: new THREE.Vector3(), hiddenDur: 1, whispered: false, quick: false,
+  specialCD: 5, cl: 0, ceilTarget: new THREE.Vector3(), aimed: false, poss: [], possLaunched: 0, crawlSnd: 0,
 };
 
 function setBossMode(m) {
   B.mode = m; B.t = 0;
+  if (m === 'chase' || m === 'stun') B.quick = false;
+  if (m === 'chase') { B.subT = 0; B.mv.set(0, 0, 0); }
+  if (m === 'ceil') { B.aimed = false; B.crawlSnd = 0; sfx.flicker(2); }
+  if (m === 'possess') { B.poss = []; B.possInit = false; B.possLaunched = 0; sfx.windup(1.1, bossAt()); }
+  if (m === 'drop') { B.vy = -26; }
+  if (m === 'vanish') { B.blinkCD = CFG.blinkCooldown; sfx.flicker(2); }
+  else if (m === 'appear') sfx.flicker(3);
   if (m === 'windup') sfx.flicker(4);
   if (m === 'windup') sfx.windup(CFG.bossWindup * (B.phase2 ? 0.7 : 1), bossAt()); // gemido que sobe avisando o ataque
   else if (m === 'dash') { sfx.dash(bossAt()); sfx.flicker(1); }
@@ -800,7 +929,8 @@ function setBossMode(m) {
 
 function bossReset() {
   B.hp = CFG.bossMaxHp; B.phase2 = false; B.flash = 0; B.vel.set(0, 0, 0); B.launch = false; B.stunDur = 0; B.vy = 0; B.squash = 0; B.spin = 10;
-  B.chaseTime = 2.5; B.tw = 0; B.w.set(0, 0, 0); B.q.identity(); B.lieT = 0; B.wallCD = 0; B.ceilCD = 0;
+  B.chaseTime = 2.5; B.tw = 0; B.w.set(0, 0, 0); B.q.identity(); B.lieT = 0; B.wallCD = 0; B.ceilCD = 0; B.blinkCD = 3; B.quick = false;
+  B.specialCD = 5; B.cl = 0; B.poss = []; lightFx.dark = 0; dropMark.visible = false;
   setBossMode('chase');
   boss.position.set(0, 0, -9);
   boss.scale.setScalar(CFG.bossScale);
@@ -1177,6 +1307,7 @@ function spawnLayout() {
 }
 
 function launchProp(p, dir, speed, thrown, dmgMul = 1, knock = 1) {
+  p.hostile = false; // (a possessão marca como hostil logo depois)
   p.vel.set(dir.x * speed, 0, dir.z * speed);
   p.thrown = thrown;
   p.falling = !thrown;
@@ -1337,7 +1468,7 @@ function updateProps(dt, t) {
       p.vel.x *= Math.pow(0.45, dt); p.vel.z *= Math.pow(0.45, dt);
     } else {
       // perdeu velocidade: cai e fica no chão (pode ser socado de novo)
-      p.thrown = false;
+      p.thrown = false; p.hostile = false;
       p.vel.y -= 24 * dt;
       o.position.y += p.vel.y * dt;
       const settle = Math.min(1, dt * 8);
@@ -1372,8 +1503,17 @@ function updateProps(dt, t) {
       }
       breakProp(p, propDir, 10); continue;
     }
+    // móvel possuído acerta o jogador
+    if (p.hostile) {
+      const dx = o.position.x - player.position.x, dz = o.position.z - player.position.z, r = 0.55 + p.T.radius;
+      if (dx * dx + dz * dz < r * r && Math.abs(o.position.y - (player.position.y + 0.9)) < 1.4) {
+        hurtPlayer(CFG.possessDamage * (p.T.size === 'large' ? 1.5 : 1));
+        state.shake = Math.max(state.shake, 0.5);
+        breakProp(p, propDir, 10); continue;
+      }
+    }
     // acertou o boss
-    if (B.mode !== 'dying') {
+    if (B.mode !== 'dying' && !p.hostile) {
       const dx = o.position.x - boss.position.x, dz = o.position.z - boss.position.z;
       const r = CFG.bossRadius + p.T.radius;
       if (dx * dx + dz * dz < r * r && Math.abs(o.position.y - (boss.position.y + 1.3)) < 2.6) { hitBossWithProp(p, propDir); continue; }
@@ -1534,6 +1674,7 @@ function updateHeld(t) {
   if (state.over) msg = '';
   else if (state.held) msg = state.held.type === 'beer' ? 'Clique = ARREMESSAR  ·  B = beber (+' + CFG.beerHeal + ')  ·  F = soltar' : 'Clique = ARREMESSAR  ·  F = soltar';
   else { const g = findGrabbable(); if (g) msg = g.type === 'beer' ? 'B = BEBER (+' + CFG.beerHeal + ' vida)  ·  F = pegar para arremessar' : 'F = pegar ' + LABELS[g.type]; }
+  if (touchMode) msg = msg.replace(/Clique = /g, 'SOCO = ').replace(/\bB = /g, 'BEBER = ').replace(/\bF = /g, 'PEGAR = ');
   if (elPrompt.textContent !== msg) elPrompt.textContent = msg;
 }
 
@@ -1583,10 +1724,10 @@ function updateHud() {
   elMoveName.style.opacity = Math.min(1, state.moveNameT / 0.4);
   elCombo.textContent = state.combo >= 2 ? 'x' + state.combo : '';
   elCombo.style.opacity = state.combo >= 2 ? Math.min(1, state.comboT) : 0;
-  updateMenu();
+  updateMenu(); touchUpdate();
   if (state.over) {
     elOverTitle.textContent = state.over === 'win' ? 'Vitória!' : 'Você foi derrotado';
-    elOverSub.textContent = (state.over === 'win' ? 'Tempo: ' + state.time.toFixed(1) + 's · ' : '') + 'Pressione R para tentar de novo';
+    elOverSub.textContent = (state.over === 'win' ? 'Tempo: ' + state.time.toFixed(1) + 's · ' : '') + (touchMode ? 'Toque para tentar de novo' : 'Pressione R para tentar de novo');
     elOver.style.display = 'flex';
   } else {
     elOver.style.display = 'none';
@@ -1731,7 +1872,7 @@ const COLORS = {
 // o aviso do ataque do fantasma (pisca cada vez mais), o avanço (apaga de uma vez), a fase 2 (pisca e fica no escuro)
 // e golpes fortes. As trocas são irregulares, mas com no mínimo 0,17 s entre elas (no máximo ~3 por segundo),
 // e dá para desligar tudo no menu (opção para quem é sensível a luz piscando).
-const lightFx = { event: null, t: 0, dur: 0, hold: 0, on: true, lvl: 1, ambientT: 12 };
+const lightFx = { event: null, t: 0, dur: 0, hold: 0, on: true, lvl: 1, ambientT: 12, dark: 0 };
 function startLightEvent(kind) {
   if (!settings.flicker) return;
   lightFx.event = kind; lightFx.t = 0; lightFx.hold = 0;
@@ -1761,6 +1902,9 @@ function updateLights(dt) {
       target = fx.on ? 1 : offLevel;
     }
   }
+  // APAGÃO (habilidade do fantasma): luzes apagadas por alguns segundos; só o brilho do fantasma ilumina
+  const wasDark = fx.dark > 0; fx.dark = Math.max(0, fx.dark - dt);
+  if (fx.dark > 0) target = 0.06; else if (wasDark) { sfx.flicker(3); startLightEvent('short'); }
   fx.lvl += (target - fx.lvl) * (1 - Math.exp(-dt * 40));
   const k = 0.12 + 0.88 * fx.lvl;
   ambient.intensity = AMBIENT0 * k;
@@ -1843,11 +1987,130 @@ function smashWallsInDash() {
   }
 }
 
+// onde o fantasma reaparece: com chance blinkBehind, a ~3 m ATRÁS de onde o jogador olha; senão, num ponto qualquer a 4-9 m.
+// Rejeita pontos dentro de paredes/plataformas, fora da casa ou fora de alcance.
+const fwdP = new THREE.Vector3(), desiredV = new THREE.Vector3();
+function pickBlinkDest() {
+  fwdP.set(0, 0, -1).applyAxisAngle(UP, look.yaw);
+  const behind = Math.random() < CFG.blinkBehind;
+  for (let i = 0; i < 12; i++) {
+    let ang, d;
+    if (behind && i < 8) { ang = Math.atan2(-fwdP.x, -fwdP.z) + (Math.random() - 0.5) * 0.9; d = 2.8 + Math.random() * 1.6; }
+    else { ang = Math.random() * Math.PI * 2; d = 4 + Math.random() * 5; }
+    const x = player.position.x + Math.sin(ang) * d, z = player.position.z + Math.cos(ang) * d;
+    if (Math.abs(x) > H - 1.6 || Math.abs(z) > H - 1.6) continue;
+    if (touchingSolid(x, z, 1.1, player.position.y + 0.5)) continue;
+    return new THREE.Vector3(x, groundY(x, z, player.position.y + 0.6), z);
+  }
+  return new THREE.Vector3(player.position.x, player.position.y, player.position.z).addScaledVector(fwdP, -2.5).setY(player.position.y);
+}
+
+// ---------- Habilidades especiais (Etapa 20) ----------
+const dropMark = new THREE.Mesh(new THREE.CircleGeometry(1, 28), new THREE.MeshBasicMaterial({ color: 0x3a0010, transparent: true, opacity: 0.6, depthWrite: false }));
+dropMark.rotation.x = -Math.PI / 2; dropMark.visible = false; dropMark.renderOrder = 2; scene.add(dropMark);
+const flipQ = new THREE.Quaternion(), flipX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI);
+const CEIL_Y = () => WALL_H - 1.5 - 0.9 * CFG.bossScale; // pos.y do fantasma preso ao teto (centro do corpo ~1,5 abaixo do teto)
+function possessCandidates() {
+  return props.filter((p) => !p.held && !p.thrown && !p.falling && p.type !== 'beer' && p.vel.lengthSq() < 0.5 &&
+    Math.hypot(p.obj.position.x - player.position.x, p.obj.position.z - player.position.z) < 16)
+    .sort((a, b) => a.obj.position.distanceToSquared(player.position) - b.obj.position.distanceToSquared(player.position));
+}
+function chooseAfterChase(p2) {
+  if (B.blinkCD <= 0 && Math.random() < (p2 ? 0.5 : CFG.blinkChance)) { setBossMode('vanish'); return; }
+  if (B.specialCD <= 0 && !state.over && Math.random() < CFG.specialChance * (p2 ? 1.3 : 1)) {
+    const opts = ['ceil'];
+    if (possessCandidates().length >= 1) opts.push('possess');
+    if (lightFx.dark <= 0) opts.push('blackout');
+    const pick = opts[Math.floor(Math.random() * opts.length)];
+    B.specialCD = p2 ? 6 : CFG.specialCooldown;
+    if (pick === 'blackout') { // apaga as luzes e continua perseguindo, mais rápido e já com o ataque encurtado
+      lightFx.dark = CFG.blackoutDur[0] + Math.random() * (CFG.blackoutDur[1] - CFG.blackoutDur[0]);
+      sfx.flicker(5); sfx.whisper(bossAt());
+      B.chaseTime = 1.3 + Math.random() * 0.8; B.t = 0; B.quick = true;
+      return;
+    }
+    setBossMode(pick); return;
+  }
+  setBossMode('windup');
+}
+function dropSlam() {
+  const pos = boss.position;
+  sfx.thud(1, bossAt());
+  state.shake = Math.max(state.shake, 0.9); state.flash = Math.max(state.flash, 0.15);
+  for (let i = 0; i < 6; i++) spawnPuff(pos.x + (Math.random() - 0.5) * 2, pos.y + 0.4, pos.z + (Math.random() - 0.5) * 2, 1.6, 0x6f6678, 0.9, 0.5, 1);
+  spawnPuff(pos.x, pos.y + 0.3, pos.z, 3.2, 0xcfe9ff, 0.6, 0.35, 0);
+  const d = Math.hypot(player.position.x - pos.x, player.position.z - pos.z);
+  if (d < CFG.ceilDropRadius && Math.abs(player.position.y - groundY(pos.x, pos.z, pos.y + 3.2)) < 2) hurtPlayer(CFG.ceilDropDamage);
+  B.stunDur = 1.9; setBossMode('stun');
+}
+function updateSpecials(dt) { // chamado por updateBoss nos modos novos; devolve true se o modo é "especial"
+  const pos = boss.position;
+  if (B.mode === 'ceil') {
+    // sobe para o teto, de cabeça para baixo, e rasteja em direção ao jogador (fora do alcance de socos e objetos)
+    const aimT = CFG.ceilCrawl * (B.phase2 ? 0.75 : 1);
+    if (B.t < aimT) {
+      const to = _v1.subVectors(player.position, pos).setY(0); const d = to.length() || 1;
+      const sp = CFG.bossChaseSpeed * 2.2 * (B.phase2 ? 1.3 : 1) * (d > 3 ? 1 : 0.3);
+      desiredV.set(to.x / d * sp + Math.sin(state.time * 5) * 0.8, 0, to.z / d * sp);
+      B.mv.lerp(desiredV, 1 - Math.exp(-dt * 4));
+      pos.addScaledVector(B.mv, dt);
+      B.crawlSnd -= dt; if (B.crawlSnd <= 0) { B.crawlSnd = 0.9; sfx.whisper(bossAt()); }
+    } else {
+      B.mv.multiplyScalar(Math.exp(-dt * 8)); pos.addScaledVector(B.mv, dt);
+      if (!B.aimed) { B.aimed = true; B.ceilTarget.copy(player.position); sfx.windup(CFG.ceilAim, bossAt()); }
+      // desliza para cima do ponto marcado
+      pos.x += (B.ceilTarget.x - pos.x) * Math.min(1, dt * 7); pos.z += (B.ceilTarget.z - pos.z) * Math.min(1, dt * 7);
+      const gy = groundY(B.ceilTarget.x, B.ceilTarget.z, 3);
+      dropMark.visible = true; dropMark.position.set(B.ceilTarget.x, gy + 0.06, B.ceilTarget.z);
+      const k = Math.min(1, (B.t - aimT) / CFG.ceilAim);
+      dropMark.scale.setScalar(CFG.ceilDropRadius * (0.5 + 0.5 * k));
+      dropMark.material.opacity = 0.35 + 0.4 * k;
+      if (B.t >= aimT + CFG.ceilAim) { dropMark.visible = false; setBossMode('drop'); }
+    }
+    pos.y += (CEIL_Y() - pos.y) * Math.min(1, dt * 7); B.vy = 0;
+    B.cl = Math.min(1, B.cl + dt * 3);
+    return true;
+  }
+  if (B.mode === 'drop') {
+    B.cl = Math.max(0, B.cl - dt * 5);
+    return false; // a queda usa a física normal (gravidade); o impacto é tratado depois, em updateBoss
+  }
+  if (B.mode === 'possess') {
+    B.cl = Math.max(0, B.cl - dt * 5);
+    if (!B.possInit) { B.possInit = true; B.poss = possessCandidates().slice(0, CFG.possessMax).map((p) => ({ p, y0: p.obj.position.y })); }
+    B.poss = B.poss.filter((e) => props.includes(e.p) && !e.p.thrown && !e.p.falling && !e.p.held);
+    const T0 = 1.0, gap = 0.4;
+    B.poss.forEach((e, i) => {
+      const o = e.p.obj, k = THREE.MathUtils.clamp((B.t - i * 0.15) / T0, 0, 1);
+      o.position.y = e.y0 + 1.7 * k * k * (3 - 2 * k) + Math.sin(state.time * 3 + i) * 0.08 * k;
+      o.rotation.z = Math.sin(state.time * 55 + i) * 0.18 * k; o.rotation.x = Math.sin(state.time * 47 + i * 2) * 0.12 * k;
+      if (Math.random() < dt * 10) spawnPuff(o.position.x, o.position.y + 0.3, o.position.z, 0.7, 0xb45cff, 0.6, 0.35, 0.3);
+    });
+    // lança um a um na direção do jogador
+    while (B.possLaunched < B.poss.length && B.t > T0 + 0.15 + B.possLaunched * gap) {
+      const e = B.poss[B.possLaunched++], o = e.p.obj;
+      propDir.subVectors(player.position, o.position).setY(0).normalize();
+      launchProp(e.p, propDir, CFG.possessSpeed, true, 1, 0);
+      e.p.hostile = true; e.p.flyY = o.position.y;
+      sfx.dash(bossAt());
+    }
+    if (B.t > T0 + 0.15 + Math.max(1, B.poss.length) * gap + 0.4 || B.poss.length === 0 && B.t > 0.3) {
+      B.chaseTime = 1.0 + Math.random() * 0.8; setBossMode('chase');
+    }
+    return false;
+  }
+  B.cl = Math.max(0, B.cl - dt * 4);
+  return false;
+}
+const _v1 = new THREE.Vector3();
+
 function updateBoss(dt) {
   B.t += dt;
+  B.blinkCD = Math.max(0, B.blinkCD - dt); B.specialCD = Math.max(0, B.specialCD - dt);
+  bossVis.visible = true; // (as piscadas apagam por quadro)
   B.flash = Math.max(0, B.flash - dt);
   const p2 = B.phase2;
-  const speedMul = p2 ? 1.4 : 1;
+  const speedMul = (p2 ? 1.4 : 1) * (lightFx.dark > 0 ? 1.2 : 1);
   const timeMul = p2 ? 0.7 : 1;
 
   dirToPlayer.subVectors(player.position, boss.position).setY(0);
@@ -1859,18 +2122,55 @@ function updateBoss(dt) {
   let sc = CFG.bossScale; // escala base deste frame (aviso e morte alteram)
 
   if (B.mode === 'chase') {
-    if (!state.over) boss.position.addScaledVector(dirToPlayer, CFG.bossChaseSpeed * speedMul * dt);
-    if (B.t >= B.chaseTime * timeMul && !state.over) setBossMode('windup');
+    // PERSEGUIÇÃO NATURAL: alterna comportamentos (aproximar em curva, rodear, encarar, avançar de repente, recuar),
+    // com velocidade oscilando e inércia ao mudar de direção.
+    B.subT -= dt;
+    if (B.subT <= 0) {
+      const r = Math.random();
+      if (dist > 10) { B.sub = r < 0.5 ? 'surge' : 'approach'; B.subT = 0.8 + Math.random() * 0.8; }
+      else if (dist < 4.5) {
+        B.sub = r < 0.4 ? 'circle' : r < 0.6 ? 'stare' : r < 0.8 ? 'approach' : 'retreat';
+        B.subT = 0.5 + Math.random() * 0.9;
+      } else {
+        B.sub = r < 0.4 ? 'approach' : r < 0.7 ? 'circle' : r < 0.85 ? 'stare' : 'surge';
+        B.subT = 0.6 + Math.random() * 1.4;
+      }
+      if (B.sub === 'circle') B.circDir = Math.random() < 0.5 ? -1 : 1;
+    }
+    const base = CFG.bossChaseSpeed * speedMul;
+    const tt = state.time;
+    const n = 0.5 + 0.5 * Math.sin(tt * 2.1 + B.ph2);
+    const weave = Math.sin(tt * 1.3 + B.ph1) * 0.5;
+    const ca = Math.cos(weave), sa = Math.sin(weave);
+    let dx = dirToPlayer.x * ca - dirToPlayer.z * sa, dz = dirToPlayer.x * sa + dirToPlayer.z * ca, spd = base;
+    if (B.sub === 'approach') spd = base * (0.7 + 0.6 * n);
+    else if (B.sub === 'surge') spd = base * 2.3;
+    else if (B.sub === 'stare') spd = base * 0.12;
+    else if (B.sub === 'retreat') { dx = -dirToPlayer.x; dz = -dirToPlayer.z; }
+    else if (B.sub === 'circle') {
+      const k = THREE.MathUtils.clamp((dist - 5.5) * 0.5, -1, 1);
+      dx = -dirToPlayer.z * B.circDir + dirToPlayer.x * k; dz = dirToPlayer.x * B.circDir + dirToPlayer.z * k; spd = base * 1.1;
+    }
+    const dl = Math.hypot(dx, dz) || 1;
+    desiredV.set(dx / dl * spd, 0, dz / dl * spd);
+    if (state.over) desiredV.set(0, 0, 0);
+    B.mv.lerp(desiredV, 1 - Math.exp(-dt * (B.sub === 'surge' ? 6 : 3)));
+    boss.position.addScaledVector(B.mv, dt);
+    if (B.t >= B.chaseTime * timeMul && !state.over) {
+      if (dist > 9) { B.chaseTime += 0.6; B.sub = 'surge'; B.subT = 1.0; }
+      else chooseAfterChase(p2);
+    }
     // contato leve enquanto persegue
     if (dist < CFG.bossRadius + 0.6) hurtPlayer(CFG.bossContactDamage);
   } else if (B.mode === 'windup') {
     // AVISO: pisca em vermelho e "encolhe" (carregando). Dá tempo de reagir.
     emissive = COLORS.windup;
     intensity = 1.2 + Math.sin(B.t * 30) * 0.8;
-    const k = Math.min(B.t / (CFG.bossWindup * timeMul), 1);
+    const wd = CFG.bossWindup * timeMul * (B.quick ? 0.75 : 1); // logo depois de reaparecer o aviso é um pouco mais curto
+    const k = Math.min(B.t / wd, 1);
     sc = CFG.bossScale * (1 - 0.18 * k);
     if (!state.over) B.dashDir.copy(dirToPlayer); // mira até o último instante
-    if (B.t >= CFG.bossWindup * timeMul) {
+    if (B.t >= wd) {
       setBossMode('dash');
       sc = CFG.bossScale;
     }
@@ -1890,6 +2190,39 @@ function updateBoss(dt) {
       B.chaseTime = 1.2 + Math.random() * 1.2;
       setBossMode('chase');
     }
+  } else if (B.mode === 'vanish') {
+    // SOME: pisca (no máximo ~3x por segundo), encolhe e solta fumaça escura
+    const k = Math.min(1, B.t / CFG.blinkVanish);
+    emissive = 0x9aa8ff; intensity = 1 + 2 * k;
+    sc = CFG.bossScale * (1 - 0.7 * k);
+    if (settings.flicker) bossVis.visible = Math.sin(B.t * 18) > -0.2 - k * 0.7;
+    if (Math.random() < dt * 14) spawnPuff(boss.position.x, boss.position.y + 1.3, boss.position.z, 1.3, 0x15121f, 0.7, 0.55, 0.6);
+    if (B.t >= CFG.blinkVanish) {
+      B.blinkDest.copy(pickBlinkDest());
+      B.hiddenDur = CFG.blinkHidden[0] + Math.random() * (CFG.blinkHidden[1] - CFG.blinkHidden[0]);
+      B.whispered = false;
+      setBossMode('hidden');
+    }
+  } else if (B.mode === 'hidden') {
+    // INVISÍVEL e intocável (fica "debaixo do chão"); um sussurro 3D avisa de onde ele vai surgir
+    bossVis.visible = false;
+    if (!B.whispered && B.t > 0.15) { B.whispered = true; sfx.whisper({ x: B.blinkDest.x, y: 1.4, z: B.blinkDest.z }); }
+    if (B.t >= B.hiddenDur) {
+      boss.position.copy(B.blinkDest); B.vy = 0; B.vel.set(0, 0, 0);
+      B.yaw = Math.atan2(player.position.x - B.blinkDest.x, player.position.z - B.blinkDest.z);
+      spawnPuff(B.blinkDest.x, B.blinkDest.y + 1.3, B.blinkDest.z, 2.2, 0x15121f, 0.8, 0.6, 0.5);
+      state.shake = Math.max(state.shake, 0.2);
+      setBossMode('appear');
+    }
+  } else if (B.mode === 'appear') {
+    // REAPARECE: brilho branco, cresce e estabiliza; fica vulnerável e depois parte para o ataque
+    const k = Math.min(1, B.t / CFG.blinkAppear);
+    emissive = 0xffffff; intensity = 3 - 2 * k;
+    sc = CFG.bossScale * (0.5 + 0.5 * k);
+    if (settings.flicker) bossVis.visible = Math.sin(B.t * 18) > -0.5 + k * 1.4;
+    if (B.t >= CFG.blinkAppear) { B.quick = true; setBossMode('windup'); }
+  } else if (B.mode === 'ceil' || B.mode === 'drop' || B.mode === 'possess') {
+    emissive = B.mode === 'drop' ? 0xff3040 : 0xb45cff; intensity = 1.2 + Math.sin(B.t * 20) * 0.3;
   } else if (B.mode === 'dying') {
     const s = Math.max(0, 1 - B.t / 1.2);
     sc = CFG.bossScale * s;
@@ -1897,6 +2230,12 @@ function updateBoss(dt) {
     emissive = 0xffffff; intensity = 3;
   }
 
+  if (B.mode === 'dying') { dropMark.visible = false; lightFx.dark = Math.min(lightFx.dark, 0.01); }
+  const onCeil = updateSpecials(dt);
+  if (B.mode === 'hidden') { // sem corpo: sem física nem hitbox (y = -40 também o tira de qualquer teste de acerto)
+    boss.position.y = -40; bossLight.intensity = 0; B.vel.set(0, 0, 0); B.launch = false; B.vy = 0;
+    return;
+  }
   // ----- FÍSICA DE CORPO RÍGIDO: arremessado, o boss voa, quica, rola e atravessa paredes de gesso -----
   B.wallCD = Math.max(0, B.wallCD - dt); B.ceilCD = Math.max(0, B.ceilCD - dt);
   const pos = boss.position;
@@ -1942,7 +2281,8 @@ function updateBoss(dt) {
   // vertical: gravidade, quique no chão/degraus e batida no teto
   const gyB = groundY(pos.x, pos.z, pos.y + (B.launch ? 0.5 : 3.2));
   const minY = gyB - 0.45 * B.tw; // deitado, o centro do corpo fica mais baixo
-  if (!B.launch && Math.abs(B.vy) < 0.5 && B.mode !== 'dying') {
+  if (onCeil) { /* preso ao teto: altura controlada por updateSpecials */ }
+  else if (!B.launch && Math.abs(B.vy) < 0.5 && B.mode !== 'dying') {
     B.vy = 0;
     pos.y += (minY - pos.y) * Math.min(1, dt * 8); // flutua acompanhando o piso e os degraus
   } else {
@@ -1958,12 +2298,13 @@ function updateBoss(dt) {
     }
   }
   const maxY = WALL_H - 3.5; // a cabeça do boss não atravessa o teto
-  if (pos.y > maxY) {
+  if (pos.y > maxY && !onCeil) {
     pos.y = maxY;
     if (B.vy > 6 && B.launch && B.ceilCD <= 0) bossCeilingImpact();
     if (B.vy > 0) B.vy = -B.vy * 0.2;
   }
   B.grounded = pos.y <= minY + 0.03;
+  if (B.mode === 'drop' && ((B.grounded && B.t > 0.08) || B.t > 2)) dropSlam();
 
   // terminou de deslizar: fica caído (B.lieT) e depois se levanta
   if (B.launch) {
@@ -2001,8 +2342,12 @@ function updateBoss(dt) {
     // levantando: o corpo caído volta suavemente para a posição em pé olhando para o jogador
     if (B.mode === 'stun') B.tw = Math.min(B.tw, THREE.MathUtils.clamp((B.stunDur - B.t) / Math.min(0.7, Math.max(0.2, B.stunDur)), 0, 1));
     else B.tw = 0;
-    upQ.setFromEuler(upE.set(0, Math.atan2(player.position.x - pos.x, player.position.z - pos.z), 0));
+    let dyaw = Math.atan2(player.position.x - pos.x, player.position.z - pos.z) - B.yaw;
+    dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw));
+    B.yaw += dyaw * Math.min(1, dt * (B.mode === 'windup' ? 14 : 5));
+    upQ.setFromEuler(upE.set(0, B.yaw, 0));
     if (B.tw > 0) boss.quaternion.slerpQuaternions(upQ, B.q, B.tw * B.tw * (3 - 2 * B.tw)); else boss.quaternion.copy(upQ);
+    if (B.cl > 0.001) { flipQ.copy(upQ).multiply(flipX); boss.quaternion.slerpQuaternions(upQ, flipQ, B.cl * B.cl * (3 - 2 * B.cl)); } // de cabeça para baixo no teto
   }
   // o corpo gira em torno do CENTRO (e não dos pés): compensa o deslocamento do pivô
   pivotV.set(0, 0.9, 0).applyQuaternion(pivotQ.copy(boss.quaternion).invert()).sub(pivotC.set(0, 0.9, 0));
@@ -2122,7 +2467,7 @@ function animate() {
 }
 
 // modo debug (abrir com ?debug na URL): expõe o estado para testes
-if (location.search.includes('debug')) window.__gp = { lightFx, startLightEvent, ambient, bulbs, sfx, state, B, boss, player, CFG, look, fist, hands, MOVES, startPunch, applyMoveHit, props, debris, createProp, breakProp, camera, settings, throwHeld, solids, allPanels, breakWall, groundY, puffs, B_q: B.q };
+if (location.search.includes('debug')) window.__gp = { dropMark, lightFx, startLightEvent, ambient, bulbs, sfx, state, B, boss, player, CFG, look, fist, hands, MOVES, startPunch, applyMoveHit, props, debris, createProp, breakProp, camera, settings, throwHeld, setBossMode, solids, allPanels, breakWall, groundY, puffs, B_q: B.q };
 
 restart();
 

@@ -492,6 +492,51 @@ Pergunta do usuário: dá para o personagem parecer humano e mexer no inimigo, m
 - Verificado por captura de tela em guarda e em soco (cruzado). **Não testado**: o visual nos outros golpes (forte, uppercut, esmagar, segurando objeto) e se o estilo agrada.
 - Próximos passos possíveis: mesma abordagem no fantasma (vestido ondulado, cabelo em mechas curvas) e nos móveis (quinas arredondadas com `RoundedBoxGeometry`, peças torneadas com `LatheGeometry`); ou modelos feitos no Blender, carregados como `.glb`.
 
+### Etapa 18: o fantasma pisca (some e reaparece, quase sempre atrás do jogador)
+Pedido: "movimentos tipo desaparecer e aparecer aleatoriamente, com alta chance de ser atrás do player; alguma outra ideia?".
+- **Três modos novos** na máquina de estados do boss: `vanish` (0,45 s: pisca, encolhe e solta fumaça escura), `hidden` (0,6 a 1,3 s: invisível e intocável; um **sussurro 3D** toca no ponto onde ele vai surgir, é a dica) e `appear` (0,5 s: brilho branco, cresce e fica **vulnerável**), que termina em `windup` com aviso 25% mais curto e depois no avanço de sempre.
+- **Quando**: ao terminar de perseguir, em vez de atacar direto ele pisca com 35% de chance (50% na fase 2), com intervalo mínimo de 7 s (`CFG.blinkChance`, `blinkCooldown`).
+- **Onde reaparece** (`pickBlinkDest`): 70% das vezes a 2,8 a 4,4 m **atrás de onde o jogador olha** (`blinkBehind`), senão num ponto qualquer a 4 a 9 m. Rejeita pontos dentro de paredes, escadas ou fora da casa; respeita o andar de cima.
+- **Intocável**: enquanto invisível o corpo fica a y = -40, então socos, esmagar e objetos arremessados não o acertam (todos conferem a altura). Sem física e sem luz própria.
+- **Segurança de luz**: o piscar de visibilidade é de no máximo ~3 vezes por segundo e some por completo se a opção de luzes piscando estiver desligada (ele só encolhe e aparece de uma vez).
+- **Testado** (14 piscadas seguidas): os três modos aparecem na ordem certa; reapareceu atrás do jogador em 10 de 14; distâncias entre 3,1 e 8,4 m; sem erros no console. **Não testado**: o visual do desaparecer/aparecer, o som do sussurro de ouvido, se a dificuldade ficou boa (reaparecer atrás e atacar rápido pode ser injusto) e o caso do jogador no andar de cima.
+- Ideias para as próximas etapas: ver a lista na conversa (clones/iluscões, ataque de agarrar, apagar as luzes, teleporte de arremesso, arrastar objetos, ficar de costas, rastejar no teto etc.).
+
+### Etapa 19 — Perseguição mais natural
+
+Pedido: "ele tá bem previsível na movimentação, tem como ter mais naturalidade nisso?".
+
+- Antes: o fantasma ia em linha reta até o jogador com velocidade constante. Agora, durante a perseguição, ele sorteia um **comportamento** (0,5–2 s cada), conforme a distância: *aproximar* (curva balançando de lado a lado, velocidade que oscila), *rodear* (órbita a ~5,5 m, sentido aleatório), *encarar* (quase parado), *avançar de repente* (2,3x) e *recuar*.
+- **Inércia**: a velocidade desejada é suavizada (`B.mv`), então ele não muda de direção de uma vez.
+- **Giro suave**: o corpo vira para o jogador com amortecimento (`B.yaw`), mais rápido no windup; ao reaparecer do blink já olha para o jogador.
+- Se o tempo de perseguição acaba com o jogador a mais de 9 m, ele estende a perseguição com um avanço, para o ataque alcançar.
+- **Testado**: sintaxe, 25 s de execução headless sem NaN nem erro de console; os comportamentos *avançar* e *aproximar* apareceram e a transição para windup ocorreu.
+- **Não testável aqui**: a amostra foi pequena (renderização por software, ~85 quadros), então não deu para verificar a variedade de *rodear/encarar/recuar* nem se parece natural. Só jogando dá para julgar e ajustar as chances e velocidades em `updateBoss`.
+
+### Etapa 20 — Novas habilidades do fantasma e menos dano
+
+Pedido: teto, possessão de móveis e apagão; "reduza o dano recebido pelo personagem, tá mt apelão esse fantasma".
+
+- **Rastejar no teto** (`ceil` → `drop`): sobe para o teto de cabeça para baixo (fora do alcance de socos e objetos), rasteja até o jogador por ~3 s, para em cima de um ponto marcado por uma **mancha escura no chão** (~0,9 s de aviso) e despenca. Quem estiver na área leva 12 de dano; se errar, ele fica **atordoado ~1,9 s** (janela para bater). Dá para esquivar com Shift ou saindo da mancha.
+- **Possessão de móveis** (`possess`): ele fica parado com os braços erguidos; até 3 móveis perto do jogador levitam tremendo, soltando fumaça roxa, e são lançados um a um contra o jogador (6 de dano, 9 se for móvel grande). Os móveis lançados também quebram outros móveis e paredes de gesso. Enquanto isso o fantasma está parado e vulnerável.
+- **Apagão**: as luzes apagam por 4–6 s (só o brilho do fantasma ilumina), ele fica 20% mais rápido e o ataque seguinte vem mais curto. Ao acabar, as luzes voltam piscando (se a opção de luz piscando estiver ligada).
+- Ao fim da perseguição o fantasma escolhe: piscar (como antes), uma especial (50%, intervalo mínimo de 9 s; 6 s na fase 2) ou o ataque normal. Parâmetros em `CFG` (`specialCooldown`, `specialChance`, `ceil*`, `possess*`, `blackoutDur`).
+- **Dano reduzido**: contato 6 → 3, avanço 18 → 9 (as novas já nascem moderadas).
+- **Testado**: modos forçados pelo debug: teto→queda→dano→atordoamento, possessão→lançamento→dano, apagão (luz cai a 6%), sem erros de console.
+- **Não testável aqui**: se a mancha de aviso é legível, se o apagão está escuro demais para jogar, a frequência das especiais, o equilíbrio do dano e o som (sem áudio no sandbox). Também não vi imagens do escuro (a captura pegou o menu).
+
+### Etapa 21 — Controles de toque (celular) e publicação na Vercel
+
+Pedido: jogar no celular; o jogo vai para a Vercel para um amigo testar.
+
+- O modo toque liga sozinho em aparelhos com tela de toque (`(hover: none) and (pointer: coarse)`); em qualquer navegador dá para forçar com `?touch` na URL.
+- **Controles**: joystick flutuante na metade esquerda da tela (vira WASD), arrastar o dedo em qualquer outro ponto para olhar, e botões SOCO, FORTE, UPPER, ESMAGAR, ESQUIVA, PEGAR, BEBER, mais ❚❚ para pausar. Cada dedo é seguido pelo seu `pointerId`, então anda, olha e soca ao mesmo tempo. Os botões dos golpes com recarga ficam esmaecidos. Toque na tela depois de ganhar/perder reinicia.
+- Sem Pointer Lock no celular: `locked` passa a significar "jogando". O jogo pausa sozinho se a aba for para segundo plano. O Jogar pede tela cheia e paisagem (onde o navegador permite; no iPhone o Safari ignora a tela cheia). Em retrato aparece um aviso para girar o aparelho.
+- No celular as **sombras começam desligadas** e a resolução é limitada (pixel ratio 1,25). Textos de dicas trocam "F/B/clique" por PEGAR/BEBER/SOCO.
+- **Publicar**: o projeto é um site estático do Vite. Na Vercel: importar o repositório do GitHub (ela detecta Vite sozinha: build `npm run build`, saída `dist`), ou rodar `npx vercel` na pasta do projeto.
+- **Testado**: emulação de celular em paisagem (667x375) com toques reais via CDP: joystick + olhar ao mesmo tempo (andou e girou a câmera), botão SOCO inicia golpe, pausa abre o menu, sem erros de console; captura de tela conferida.
+- **Não testável aqui**: desempenho real em celular de verdade, conforto e posição dos botões, áudio no iOS (depende do toque em Jogar para liberar), tela cheia no iPhone, e se o joystick/olhar fica bom nas mãos. Se travar no aparelho do seu amigo, as sombras já estão desligadas; reduzir mais exigiria baixar a resolução.
+
 ## Próximas etapas (a decidir)
 
 - Jogar e equilibrar: `bossMaxHp`, `punchDamage`, `heavyDamage`, `wallSlamDamage`, `heavyCooldown`, `propLaunch`, `throwSpeed` no `CFG` (o hot reload ajuda).

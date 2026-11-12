@@ -2,7 +2,9 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#07060c">
   <title>Ghostpunch Mini</title>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #07060c; font-family: system-ui, sans-serif; }
@@ -93,7 +95,8 @@
       <div class="opt" style="grid-template-columns:auto 1fr"><input type="checkbox" id="optShadow" checked><label for="optShadow">Sombras (desligue se estiver travando)</label></div>
       <div class="opt"><label for="optVol">Volume</label><input type="range" id="optVol" min="0" max="1" step="0.05" value="0.7"><span id="optVolV">70%</span></div>
       <div class="opt"><label for="optFov">Campo de visão</label><input type="range" id="optFov" min="60" max="110" step="1" value="80"><span id="optFovV">80°</span></div>
-      <table>
+      <p class="touchonly" style="color:#b8b2e0;font-size:13px;margin-top:16px;text-align:left">Controles no celular (deite o aparelho): arraste o dedo na <b>metade esquerda</b> para andar (joystick) e em qualquer outro ponto da tela para <b>olhar</b>. Botões: SOCO (combo), FORTE, UPPER, ESMAGAR, ESQUIVA, PEGAR (toque de novo + SOCO para arremessar) e BEBER. ❚❚ no canto pausa.</p>
+      <table class="kbonly">
         <tr><td>Mover</td><td>W A S D</td></tr>
         <tr><td>Olhar</td><td>Mouse</td></tr>
         <tr><td>Socar (combo de 3)</td><td>Clique esquerdo ou Espaço</td></tr>

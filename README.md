@@ -778,11 +778,94 @@ Pedido: "as animações do fantasma tão meio esquisitas e o fantasma tá passan
 - `modelos-brutos/` (fora do git pelo `.gitignore`) limpo: apagados os downloads sem uso (outros modelos de fantasma testados, *Dying* e arquivos do personagem antigo); ficaram só os FBX das animações atuais, o modelo da Samara e o dos braços (129 MB → 17 MB).
 - Trabalho da branch `textures-test` commitado e levado para a `main`.
 
+### Etapa 44 — Animações das mãos (segurar, beber, arremessar, agarrar o fantasma) e sons do jogador
+
+Pedido: animações de soco e de agarrar o fantasma, de segurar cada objeto e de beber, e os sons.
+
+- **Três formatos de mão** no modelo dos braços: punho fechado (socos), pegada (segurar/agarrar) e aberta (alcançar). Gerados por `tools/bake_arms.mjs` dobrando os dedos em graus diferentes; o jogo mostra um por vez. `arms.glb`: 345 → 516 KB.
+- **Segurar cada objeto**: o objeto passou a ficar no espaço das mãos e cada tipo tem sua pegada (`GRIP` em `main.js`): garrafa, vaso, bola, almofada e tábua com **uma mão** (a direita segura, a esquerda fica em guarda baixa); caixa, barril, TV e cadeira com **as duas mãos**, uma de cada lado (a distância entre as mãos vem do tamanho do objeto). Ao pegar, a mão vai até o objeto e ele "vem" para a mão.
+- **Beber**: a mão direita leva a garrafa até a boca (a mão acompanha a garrafa e encolhe um pouco perto do rosto), a cabeça inclina e há sons de gole ("glup") durante o gole.
+- **Arremessar com o braço**: o braço (ou os dois, em objetos pesados) vai para trás e lança; o objeto **só sai da mão no meio do movimento** (antes saía instantaneamente). Grunhido de esforço.
+- **Agarrar o fantasma**: as duas mãos vão abertas até ela e fecham (pegada), sacudindo; ela fica erguida na sua frente; no arremesso as mãos terminam o movimento para a frente.
+- **Sons novos do jogador** (Web Audio, sintetizados): expirar no soco leve/cruzado, grunhido no soco forte/uppercut/esmagar e nos arremessos, tilintar de vidro ao pegar garrafa, madeira rangendo ao levantar objeto pesado, pano/cabelo agarrado ao pegar o fantasma, goles ao beber.
+- Com as mãos ocupadas (arremessando, agarrando o fantasma), não dá para socar.
+- **Testado**: capturas segurando caixa (duas mãos), vaso (uma mão), garrafa de vodka (uma mão), bebendo, depois de arremessar e agarrando o fantasma; arremesso de caixa (18 de dano) e de vodka (explodiu no fantasma, 23,5 de dano); controles de toque; sem erros de console; `npm run build`.
+- **Não testável aqui**: os sons (sem áudio no ambiente de testes) e as animações em movimento (só quadros parados); o encaixe exato das mãos em cada objeto pode precisar de ajuste fino nos números de `GRIP`.
+
+### Etapa 45 — Garrafa presa na mão e som de filme de terror
+
+Pedido: "tá meio bizarra a animação das mãos ao segurar as garrafas ainda, e o som num geral não tá me agradando, um som tenso de fundo e uns sons do fantasma sendo mais nível filme de terror seria mais adequado".
+
+- **Objetos de uma mão presos na mão**: antes a mão "perseguia" a garrafa (a garrafa se mexia e a mão tentava acompanhar, e ficava torta). Agora garrafa, vaso, bola, almofada e tábua viram **filhos do punho direito** (hierarquia de transformações): a mão gira de lado (polegar para cima), o objeto atravessa a mão fechada, e a animação é só da mão — o objeto vai junto em qualquer pose. **Beber** virou uma animação da mão por quadros-chave (leva a garrafa à boca e inclina o gargalo para o rosto). O arremesso de uma mão também parte dessa pegada. Objetos de duas mãos continuam como antes.
+- **Fundo tenso** (substitui o zumbido simples), em camadas que crescem quando o fantasma se aproxima: sub-grave a 36 Hz com batimento lento e uma serra abafada que "respira"; **cluster dissonante de cordas** (quatro serras a um semitom de distância, com vibrato lento) cujo filtro abre com a tensão; agudo vítreo com tremolo. De tempos em tempos, longe: porta batendo, **metal arranhado** ou ruído que cresce e corta. Batimento cardíaco mais contido.
+- **Reverberação**: um `ConvolverNode` com resposta ao impulso gerada por código (~3 s, graves mais longos) dá eco de casarão vazio aos sons 3D e ao fundo; os sons do fantasma têm mais eco ("de dentro das paredes").
+- **Sons do fantasma de filme de terror**:
+  - **Estertor** (o "ruído de garganta" de fantasma de filme japonês): trem de pulsos glóticos muito rápidos (20–40/s) passando por formantes de voz, com ritmo e altura oscilando. Toca enquanto ela persegue/rasteja/reaparece, no aviso de ataque e ao levar golpes.
+  - **Grito de terror**: agudo rasgado com distorção forte + segundo agudo meio-tom acima (atrito) + estertor por baixo (golpes, arremesso, morte, desespero).
+  - **Acorde de susto** (*stinger*): ruído ao contrário crescendo + cluster de metais dissonante + baque sub-grave, quando ela reaparece do sumiço, na fase 2 e no desespero.
+  - Sussurros com sílabas "ao contrário" e muito eco; às vezes viram estertor.
+- **Testado**: capturas segurando a garrafa e bebendo (início e meio do gole); todos os sons novos tocando com o áudio ligado (picos entre 0,13 e 0,50, sem estourar); arremesso de vodka; controles de toque; sem erros de console; `npm run build`.
+- **Não testável aqui**: ouvir de verdade (o ambiente de testes só mede volume). Se algum som ficar alto, baixo ou estranho, os ajustes estão em `src/audio.js` (`croak`, `shriek`, `stinger`, `bed`).
+
+### Etapa 46 — Pegada de duas mãos natural e áudio sem picotar na câmera lenta
+
+Pedidos: "a animação do agarrar com as 2 mãos também tá bem antinatural… uma visão normal de agarrar algo não fica com os braços cobrindo a visão, nem vindo de cima"; "o som tá ficando picotado quando dá os efeitos de câmera lenta".
+
+- **Duas mãos (caixa, barril, TV, cadeira)**: o objeto fica mais baixo, na altura da barriga, e as mãos seguram as laterais com as palmas para dentro e os antebraços vindo **de baixo** (como na guarda), sem nada acima do centro da tela. O arremesso de duas mãos agora balança por baixo e empurra para a frente (antes os braços subiam e passavam na frente da visão).
+- **Agarrar o fantasma**: braços baixos esticados para a frente, mãos fechando nela na altura do peito; no arremesso, empurram para a frente e voltam à guarda.
+- **Áudio picotando**: o estertor criava um nó de áudio novo por pulso (~40 por segundo, com 2 filtros cada); nos golpes fortes (que é quando a câmera lenta liga) vários sons de dor/grito/estertor empilhavam centenas de nós e o áudio engasgava. Agora o estertor é **um** ruído + dois filtros + um oscilador com onda de "trem de pulsos" (`PeriodicWave`) modulando o volume, com no máximo 2 ao mesmo tempo; os gritos têm intervalo mínimo de 0,4 s; a reverberação ficou mais curta (3,2 → 2,4 s); e o contexto de áudio usa um buffer um pouco maior (`latencyHint: 'balanced'`). Uma rajada de 10 golpes fortes seguidos agora gasta ~6 ms para montar os sons.
+- **Testado**: capturas segurando caixa, barril e cadeira (mãos embaixo, visão livre) e agarrando o fantasma; estertor tocando; rajada de sons; arremesso; controles de toque; sem erros de console; `npm run build`.
+- **Não testável aqui**: ouvir se o picote sumiu de fato no seu computador/celular.
+
+### Etapa 47 — Áudio que ficava mudo e picotado: vigia de áudio e menos carga
+
+Pedido: "tá picotando, e não só isso, passou a ficar mudo depois de um tempo, provavelmente alguma ação tá ficando travada".
+
+- **Mudo para sempre (causa provável)**: no Web Audio, se algum filtro gera um valor inválido (NaN/infinito) — por exemplo um filtro de Q alto com a frequência modulada muito rápido —, esse valor entra no compressor e na reverberação, que guardam estado, e **toda** a saída fica muda até recarregar a página. Reproduzido no teste: um único som com NaN deixou o jogo inteiro mudo.
+  - **Vigia de áudio** (`api.watchdog`, chamado a cada quadro, mede 2× por segundo): se a saída tiver valor inválido ou silêncio total por 2 s (o fundo nunca é silêncio total), **reconstrói** compressor, analisador e reverberação; se o navegador suspender o áudio sem o jogo estar pausado, retoma. No teste: envenenado → NaN; meio segundo depois o som voltou sozinho.
+  - O filtro do gorgolejo (Q 14 com frequência modulada) caiu para Q 6, a fonte mais provável do valor inválido.
+- **Picotando**: menos carga no processamento de áudio quando muitos sons tocam juntos (golpes em sequência + câmera lenta):
+  - **No máximo 6 vozes** (gemidos/gritos sintetizados, ~12 nós de áudio cada) ao mesmo tempo; as excedentes não tocam.
+  - Distorção das vozes sem sobreamostragem e com a curva reaproveitada (antes recriada a cada voz).
+  - Reverberação mais curta (2,4 → 1,8 s).
+- **Testado**: envenenamento proposital da saída e recuperação automática; 64 s de luta simulada com golpes a cada 0,3 s sem NaN e com som o tempo todo; rajada de 10 golpes fortes; controles de toque; sem erros de console; `npm run build`.
+- **Não testável aqui**: ouvir no seu computador se o picote acabou. Se acontecer de novo, o console do navegador (F12) vai mostrar "[áudio] saída reconstruída" quando o vigia agir — isso ajuda a achar a causa.
+
+### Etapa 48 — Sons gravados no lugar dos sintetizados e poeira menos "cartoon"
+
+Pedidos: "eu adicionei vários sons ali pra substituir os que vc havia feito via código, tbm estou incomodado com a poeira do fantasma, é possível fazer algo menos cartoon nisso?" e "renomeie os arquivos, e organize como ficar melhor tbm".
+
+- **Organização**: a pasta `sounds/` virou `public/sounds/` (a pasta que o Vite publica), com nomes claros (`punch_heavy.mp3`, `ghost_scream.mp3`, ...). Os arquivos foram cortados no trecho útil, normalizados e recomprimidos (2,3 MB → 0,6 MB, importante no celular). A tabela nome novo → original/autor está em `public/sounds/CREDITOS.md`.
+- **Como entram no jogo** (`src/audio.js`): cada arquivo é baixado e decodificado uma vez (`fetch` + `decodeAudioData`) e tocado por `play()` (AudioBufferSourceNode), passando pelo mesmo som 3D (PannerNode) e pela reverberação de antes. Se um arquivo faltar ou ainda não tiver carregado, o som sintetizado antigo toca no lugar.
+  - Socos: leve/forte conforme a força, com variação aleatória de altura para não ficar repetitivo.
+  - Gritos, gemidos e morte: trechos aleatórios do grito gravado, com velocidade/altura variando — um arquivo vira vários gritos diferentes.
+  - Sussurro, investida, explosão da vodka, vidro (vaso/garrafa/TV), metal (barril/TV), madeira (paredes e móveis), batidas em parede.
+  - Rastejar no teto: o arquivo toca em loop saindo da posição do fantasma enquanto ele está no teto.
+  - Fundo: a trilha gravada em loop substitui o acorde sintetizado; o grave e os eventos distantes continuam, e o volume sobe com a tensão.
+- **Poeira realista**: as esferas coloridas viraram *sprites* (sempre virados para a câmera) com uma textura de fumaça gerada por código (manchas irregulares, borda bem suave). Todas as cores passam por `dustify()`: pouca saturação, cinza-marrom de pó. As nuvens abrem rápido e depois quase param, giram devagar, sobem pouco e somem aos poucos. O rastro azul no ar atrás do fantasma saiu; no chão sobra só a poeira levantada. As ondas de choque viraram um anel de poeira suave no chão em vez do anel amarelo sólido. O fogo da vodka é o único que brilha (mistura aditiva).
+- **Testado**: os 12 arquivos carregam (HTTP 200) e cada efeito gera som (nível medido na saída); loop do teto tocando; capturas com poeira de parede quebrada; sem erros de console; `npm run build`.
+- **Não testável aqui**: ouvir de fato como ficou a mixagem (volumes relativos) — se algum som estiver alto ou baixo demais, é só ajustar o `gain` da chamada `play()` correspondente em `audio.js`.
+
+### Etapa 49 — Cada objeto com o som do seu material
+
+Pedido: "deixe o heavy_punch só pro soco pesado, os objetos tão todos com som de soco, não dá pra fazer mais parecido com o objeto? nos que ja tiver o som do objeto com o que baixei deixe com o som".
+
+- **Causa**: todo acerto no fantasma passava por `registerHit()`, que sempre tocava o som de soco — inclusive quando o golpe era um objeto arremessado, e o `punch_heavy` era escolhido pela força do impacto, não pelo golpe. Socar, rebater ou largar um objeto tocava uma "pancada" genérica sintetizada.
+- **Agora** `registerHit(stop, squash, src)` recebe o que acertou: `'heavy'` (só o soco forte → `punch_heavy`), `'light'` (jab, direto, uppercut → `punch_light`), o tipo do objeto (som do material) ou `'none'` (esmagar, explosão, parede, arremesso do fantasma: esses já têm som próprio).
+- **`sfx.impact(tipo)`**: som do material, usado quando o objeto acerta o fantasma, é socado, rebatido, danificado, largado ou cai no chão:
+  - madeira (cadeira, caixa, tábua, mesa, cama, guarda-roupa, berço, estante): o começo de `wood_break` (só a batida, sem o estilhaço) + `wall_hit`;
+  - vidro (vaso, garrafa): o começo de `glass_break` + um "tlim" sintetizado;
+  - metal (barril, geladeira): `metal_hit` (mais grave na geladeira); TV: `metal_hit` curto + `wall_hit`;
+  - bola: `wall_hit` mais agudo + um "tum" de borracha;
+  - tecido (sofá, travesseiro): não há arquivo, então é sintetizado (pancada abafada).
+- Quebrando: a geladeira passou a soar como metal e o sofá como estofado rasgando com a armação de madeira (antes caíam no som de madeira).
+- **Testado**: medi quais arquivos tocam em cada caso (cadeira → madeira, vaso → vidro, barril/geladeira → metal, soco leve → `punch_light`, soco forte → `punch_heavy`); sem erros de console; `npm run build`.
+- **Não testável aqui**: ouvir o resultado; se algum material ficar estranho, a tabela `MATERIAL` e `api.impact` em `audio.js` concentram tudo.
+
 ## Próximas etapas (a decidir)
 
 - Jogar e equilibrar: `bossMaxHp`, `punchDamage`, `heavyDamage`, `wallSlamDamage`, `heavyCooldown`, `propLaunch`, `throwSpeed` no `CFG` (o hot reload ajuda).
 - Texturas autorais (piso, parede, rosto do boss, madeira dos móveis). Critério explícito de avaliação.
-- Partículas. Sons: já feitos (Etapa 11); falta trocar por amostras gravadas por mim, se quiser mais realismo.
 - Mais ideias: poder pegar móveis grandes (com mais dano e mais lento); arremesso carregado (segurar para dar mais força); medidor de medo (do jogo original); parry; boss reagindo ao esmagar (pulo para trás); golpe em corrida (dash punch).
 - Ajustar `aimAssistDeg`, `heldThrowMul`, `grabRange` e `throwHeld` no `CFG` depois de jogar.
 - Sensibilidade e FOV agora se ajustam no menu de pausa; falta só achar os valores bons jogando.

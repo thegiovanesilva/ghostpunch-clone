@@ -95,11 +95,18 @@ export function createModelRig({ url, height, parent, onReady, shadows = false }
 export function loadFirstPersonArms(url, hands, onReady) {
   new GLTFLoader().load(url, (gltf) => {
     for (const h of hands) {
-      const node = gltf.scene.getObjectByName(h.side > 0 ? 'arm_A' : 'arm_B'); if (!node) continue;
+      const base = h.side > 0 ? 'arm_A' : 'arm_B';
+      const node = gltf.scene.getObjectByName(base); if (!node) continue;
       for (const ch of h.fist.children) ch.visible = false;
-      node.traverse((o) => { if (!o.isMesh) return; o.castShadow = false; o.receiveShadow = false; o.frustumCulled = false;
-        const m = o.material; m.side = THREE.FrontSide; m.emissive = new THREE.Color(0xffffff); m.emissiveMap = m.map; m.emissiveIntensity = 0.13; }); // um pouco de luz própria: os braços não somem no escuro
-      h.fist.add(node); h.model = node;
+      // 3 formatos de mão (feitos em tools/bake_arms.mjs): punho fechado, pegada e aberta; só um aparece por vez
+      h.shapes = {};
+      for (const [k, suf] of [['fist', ''], ['grip', '_grip'], ['open', '_open']]) {
+        const n = gltf.scene.getObjectByName(base + suf); if (!n) continue;
+        n.traverse((o) => { if (!o.isMesh) return; o.castShadow = false; o.receiveShadow = false; o.frustumCulled = false;
+          const m = o.material; m.side = THREE.FrontSide; m.emissive = new THREE.Color(0xffffff); m.emissiveMap = m.map; m.emissiveIntensity = 0.13; }); // um pouco de luz própria: os braços não somem no escuro
+        n.visible = k === 'fist'; h.fist.add(n); h.shapes[k] = n;
+      }
+      h.model = node;
     }
     console.info('[modelo] ' + url + ': braços carregados'); onReady?.();
   }, undefined, () => console.info('[modelo] ' + url + ' não encontrado: usando as mãos de primitivas'));

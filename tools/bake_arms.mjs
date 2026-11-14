@@ -23,8 +23,11 @@ const out = new Document(); const buf = out.createBuffer(); const scene = out.cr
 const tex = out.createTexture('base').setImage(fs.readFileSync(texPath)).setMimeType('image/png');
 const mat = out.createMaterial('arms').setBaseColorTexture(tex).setRoughnessFactor(0.75).setMetallicFactor(0);
 const parts = { '-1': tris.filter((t) => t[0].p[0] + t[1].p[0] + t[2].p[0] < 0), '1': tris.filter((t) => t[0].p[0] + t[1].p[0] + t[2].p[0] >= 0) };
-for (const [name, sgn] of [['arm_A', -1], ['arm_B', 1]]) {
-  const T = parts[sgn]; const verts = T.flat();
+// 3 formatos de mão: punho fechado (socos), pegada (segurar objetos / agarrar) e aberta (alcançar)
+for (const [suffix, curl] of [['', CURL], ['_grip', 0.55], ['_open', 0.12]])
+for (const [base, sgn] of [['arm_A', -1], ['arm_B', 1]]) {
+  const name = base + suffix;
+  const T = parts[sgn]; const verts = T.flat().map((v) => ({ p: [...v.p], n: [...v.n], u: v.u }));
   const ys = verts.map((v) => v.p[1]); const y0 = Math.min(...ys), y1 = Math.max(...ys), H = y1 - y0;
   const cen = (f) => { const s = verts.filter(f); return V.mul(s.reduce((a, v) => V.add(a, v.p), [0, 0, 0]), 1 / s.length); };
   const tip = cen((v) => v.p[1] < y0 + H * 0.04), mid = cen((v) => v.p[1] > y0 + H * 0.3 && v.p[1] < y0 + H * 0.4);
@@ -48,7 +51,7 @@ for (const [name, sgn] of [['arm_A', -1], ['arm_B', 1]]) {
   const bend = (zj, ang, band) => { const yj = yAt(zj) - Lh * 0.02;
     for (const v of verts) { const k = Math.min(1, Math.max(0, (zj + band - v.p[2]) / (2 * band))); if (k <= 0) continue; const a = ang * k, c = Math.cos(a), s = Math.sin(a);
       const y = v.p[1] - yj, z = v.p[2] - zj; v.p = [v.p[0], yj + y * c + z * s, zj - y * s + z * c]; v.n = [v.n[0], v.n[1] * c + v.n[2] * s, -v.n[1] * s + v.n[2] * c]; } };
-  if (CURL > 0) { bend(Lh * 0.24, 1.75 * CURL, Lh * 0.05); bend(Lh * 0.50, 1.45 * CURL, Lh * 0.06); }
+  if (curl > 0) { bend(Lh * 0.24, 1.75 * curl, Lh * 0.05); bend(Lh * 0.50, 1.45 * curl, Lh * 0.06); }
   // origem no meio do punho fechado; escala para o tamanho do punho do jogo (palma ~0,23 de largura)
   const s = 0.23 / palmW; const xc = (lo[bmax] + hi[bmax]) / 2, zc = Lh * 0.55, yc = yAt(Lh * 0.7);
   for (const v of verts) v.p = [(v.p[0] - xc) * s, (v.p[1] - yc) * s, (v.p[2] - zc) * s];

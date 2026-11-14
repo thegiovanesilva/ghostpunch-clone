@@ -172,7 +172,7 @@ try {
 function saveSettings() { try { localStorage.setItem('ghostpunch-settings', JSON.stringify(settings)); } catch { /* ignora */ } }
 
 // Som: tudo sintetizado em audio.js (sem arquivos). O contexto de áudio só nasce no clique em Jogar.
-const sfx = createAudio({ vol: settings.vol, muted: settings.muted });
+const sfx = createAudio({ vol: settings.vol, muted: settings.muted, base: import.meta.env.BASE_URL + 'sounds/' });
 let audioPaused = true;
 const bossAt = () => ({ x: boss.position.x, y: boss.position.y + 1.5, z: boss.position.z });
 
@@ -757,6 +757,7 @@ const state = {
   over: null,        // null | 'win' | 'lose'
   atk: null,         // golpe em andamento: { kind, t, hand (0 esq, 1 dir, 2 ambas), hitDone } ou null
   chain: 0,          // quantos jabs seguidos (o 3º vira cruzado)
+  throwT: -1, tossT: -1, grabAnimT: 0, gulpN: -1, // animações das mãos (arremesso, arremesso do fantasma, pegar)
   chainT: 0,         // janela de tempo para continuar o combo
   nextHand: 0,       // próxima mão a socar (alterna esquerda/direita)
   cd: { heavy: 0, upper: 0, slam: 0 }, // recarga dos golpes especiais
@@ -1211,7 +1212,7 @@ function setBossMode(m) {
   if (m === 'possess') { B.poss = []; B.possInit = false; B.possLaunched = 0; sfx.windup(1.1, bossAt()); }
   if (m === 'drop') { B.vy = -26; }
   if (m === 'vanish') { B.blinkCD = CFG.blinkCooldown; sfx.flicker(2); }
-  else if (m === 'appear') sfx.flicker(3);
+  else if (m === 'appear') { sfx.flicker(3); sfx.stinger(0.6); } // reaparece: acorde de susto
   if (m === 'windup') sfx.flicker(4);
   if (m === 'swipe') { if (!B.swipeN) B.swipeN = 2 + (Math.random() < (B.phase2 ? 0.6 : 0.35) ? 1 : 0); B.hitThis = false; sfx.windup(CFG.swipeWindup, bossAt()); }
   if (m === 'windup') sfx.windup(CFG.bossWindup * (B.phase2 ? 0.7 : 1), bossAt()); // gemido que sobe avisando o ataque
@@ -1274,6 +1275,7 @@ function aimAssist() {
 }
 function startPunch(kind = 'jab') {
   if (state.held) { if (!state.over) throwHeld(); return; } // com um objeto na mão, atacar = arremessar
+  if (state.throwT >= 0 || state.tossT >= 0 || B.mode === 'grabbed') return;     // mãos ocupadas
   if (state.over || state.atk) return;
   if (MOVES[kind].cd && state.cd[MOVES[kind].cd] > 0) return;
   aimAssist();
@@ -1304,6 +1306,7 @@ function startPunch(kind = 'jab') {
   }
   if (M.area) sfx.whoosh(0.4, M.hitAt * M.dur * 0.5);
   else sfx.whoosh({ jab: 0.3, cross: 0.6, heavy: 1, upper: 0.75 }[kind], M.hitAt * M.dur * 0.45);
+  if (kind === 'heavy' || kind === 'upper' || kind === 'slam') sfx.grunt(kind === 'heavy' ? 0.9 : 0.6, M.hitAt * M.dur * 0.3); else sfx.exhale(kind === 'cross' ? 0.6 : 0.3, M.hitAt * M.dur * 0.3);
 }
 
 const fwd = new THREE.Vector3();
@@ -1334,7 +1337,8 @@ function damageBoss(amount) {
 // efeitos de impacto: congela o jogo por um instante, amassa o boss e conta o combo
 // VIBRAÇÃO (celular Android; o iPhone não deixa páginas vibrarem)
 function vib(ms) { if (touchMode) try { navigator.vibrate?.(ms); } catch { /* ignora */ } }
-function registerHit(stop, squash = 1) {
+// src = o que acertou: 'heavy' (soco forte), 'light' (outros socos), um tipo de objeto (som do material) ou 'none' (o efeito já tem som próprio)
+function registerHit(stop, squash = 1, src = 'light') {
   vib(squash >= 0.9 ? 45 : 15);
   state.hitstop = Math.max(state.hitstop, stop);
   state.combo++;
@@ -1342,7 +1346,8 @@ function registerHit(stop, squash = 1) {
   B.squash = squash;
   if (squash >= 0.9) startLightEvent('hit'); // golpe forte faz a luz tremer
   if (squash >= 0.9) state.flash = Math.max(state.flash, 0.35);
-  sfx.hit(squash, 1 + Math.min(state.combo, 8) * 0.05); // o tom sobe a cada golpe do combo
+  if (src === 'heavy' || src === 'light') sfx.hit(squash, 1 + Math.min(state.combo, 8) * 0.05, src === 'heavy'); // o tom sobe a cada golpe do combo
+  else if (src !== 'none') sfx.impact(src, bossAt(), squash);
   sfx.bossHurt(squash, bossAt());
 }
 
@@ -1391,7 +1396,7 @@ function grabBoss() {
   B.vel.set(0, 0, 0); B.vy = 0; B.launch = false; B.tw = 0; B.w.set(0, 0, 0); B.broken = 0; B.blockT = 0;
   setBossMode('grabbed');
   state.moveNameT = 0.9; elMoveName.textContent = tx('grab');
-  sfx.pick(); sfx.scream(0.5, bossAt(), 0.4, 'hit'); state.shake = Math.max(state.shake, 0.3);
+  sfx.grabCloth(bossAt()); sfx.scream(0.5, bossAt(), 0.4, 'hit'); state.shake = Math.max(state.shake, 0.3);
 }
 function addFear(v) { B.fear = Math.min(100, (B.fear || 0) + v * ((B.calmT || 0) > 0 ? 0.5 : 1)); B.fearHold = CFG.fearHold; }
 function launchBoss(dir, atk, boost = 1) {
@@ -1428,7 +1433,7 @@ function punchDirTo(pos, radius, range = CFG.punchRange) {
 function deflectProp(p) {
   propDir.subVectors(boss.position, p.obj.position).setY(0).normalize();
   launchProp(p, propDir, 34, true, 2, 1.4); p.flyY = boss.position.y + 1.0;
-  sfx.knock(p.obj.position); state.hitstop = Math.max(state.hitstop, 0.07); state.shake = Math.max(state.shake, 0.4);
+  sfx.impact(p.type, p.obj.position, 0.9); state.hitstop = Math.max(state.hitstop, 0.07); state.shake = Math.max(state.shake, 0.4);
   state.moveNameT = 0.9; elMoveName.textContent = tx('deflect'); addFear(10);
 }
 function deflectIncoming() {
@@ -1465,7 +1470,7 @@ function applyMoveHit(kind) {
         if (air && (kind === 'jab' || kind === 'cross')) atk = CFG.attacks.juggle;
         damageBoss(M.dmg * (air ? 1.5 : 1) * (B.broken > 0 ? CFG.guardBrokenMul : 1));
         launchBoss(d, atk);
-        registerHit(atk.hitstop, atk.squash);
+        registerHit(atk.hitstop, atk.squash, kind === 'heavy' ? 'heavy' : 'light');
         if (air) { state.moveNameT = 0.8; elMoveName.textContent = tx('juggle'); }
       }
       state.shake = Math.max(state.shake, blocked ? 0.25 : atk.shake);
@@ -1490,7 +1495,7 @@ function applyMoveHit(kind) {
     if (p.T.size === 'small') {
       if (M.prop.pop) { launchProp(p, d, M.prop.speed, false); p.vel.y = M.prop.pop; } // uppercut: o objeto sobe
       else launchProp(p, d, M.prop.speed, true, M.prop.mul, M.prop.knock);
-      sfx.knock(p.obj.position);
+      sfx.impact(p.type, p.obj.position, 0.7);
       state.hitstop = Math.max(state.hitstop, 0.04);
       state.shake = Math.max(state.shake, 0.25);
     } else {
@@ -1516,10 +1521,16 @@ function punchWalls(M) {
 
 // ESMAGAR: onda de choque em volta do jogador, empurra boss e objetos para longe
 const shockwaves = [];
-const ringGeo = new THREE.RingGeometry(0.85, 1, 48);
+const ringGeo = new THREE.PlaneGeometry(2, 2);
+const ringTex = (() => { // anel de poeira de borda suave (textura gerada): por dentro vazio, por fora esfumaçado
+  const N = 128, c = document.createElement('canvas'); c.width = c.height = N; const g = c.getContext('2d');
+  const gr = g.createRadialGradient(N / 2, N / 2, N * 0.18, N / 2, N / 2, N / 2);
+  gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.7, 'rgba(255,255,255,0.55)'); gr.addColorStop(0.85, 'rgba(255,255,255,0.3)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, N, N); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+})();
 const ringPool = [];
 function spawnShockwave(pos, R) {
-  const m = new THREE.Mesh(ringGeo, ringPool.pop() ?? new THREE.MeshBasicMaterial({ color: 0xffe3a8, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false })); // (material reaproveitado: dispose recompilava o shader)
+  const m = new THREE.Mesh(ringGeo, ringPool.pop() ?? new THREE.MeshBasicMaterial({ color: 0x6b6158, map: ringTex, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false })); // (material reaproveitado: dispose recompilava o shader)
   m.rotation.x = -Math.PI / 2;
   m.position.set(pos.x, 0.06, pos.z);
   scene.add(m);
@@ -1528,9 +1539,9 @@ function spawnShockwave(pos, R) {
 function updateShockwaves(dt) {
   for (const w of [...shockwaves]) {
     w.t += dt;
-    const k = w.t / 0.4;
-    w.m.scale.setScalar(0.3 + k * w.R);
-    w.m.material.opacity = 0.9 * Math.max(0, 1 - k);
+    const k = w.t / 0.7;
+    w.m.scale.setScalar(0.3 + (1 - Math.pow(1 - Math.min(1, k), 2)) * w.R);
+    w.m.material.opacity = 0.5 * Math.pow(Math.max(0, 1 - k), 1.4);
     if (k >= 1) { scene.remove(w.m); ringPool.push(w.m.material); shockwaves.splice(shockwaves.indexOf(w), 1); }
   }
 }
@@ -1557,7 +1568,7 @@ function applySlam(M) {
       if (B.blockT > 0 && canGuard()) breakGuard(slamDir); // a onda de choque também quebra a guarda
       damageBoss(M.dmg);
       launchBoss(slamDir, atk, 1 - 0.4 * Math.min(1, dist / R)); // quanto mais perto, mais forte
-      registerHit(atk.hitstop, atk.squash);
+      registerHit(atk.hitstop, atk.squash, 'none');
     }
   }
   for (const p of [...props]) {
@@ -1813,30 +1824,62 @@ function spawnDebris(pos, color, n, dir, force) {
   }
 }
 
-// nuvens de poeira / eco: esferas translucidas que crescem e somem
+// POEIRA / FUMAÇA (realista, não "cartoon"): sprites (quadrados que sempre olham para a câmera) com uma textura de
+// fumaça gerada por código — borda bem suave e manchas irregulares — em vez de esferas de cor sólida. As cores passam
+// por dustify(): perdem quase toda a saturação e ficam num cinza-marrom escuro de pó, então nada de nuvem azul/roxa/amarela.
+// Cada nuvem gira devagar, cresce, sobe pouco e some; o fogo da garrafa de vodka é o único com brilho (mistura aditiva).
+function makeSmokeTex() {
+  const N = 128, c = document.createElement('canvas'); c.width = c.height = N;
+  const g = c.getContext('2d');
+  // várias manchas suaves sobrepostas = contorno irregular de fumaça
+  for (let i = 0; i < 26; i++) {
+    const a = Math.random() * Math.PI * 2, r = Math.random() * N * 0.2, x = N / 2 + Math.cos(a) * r, y = N / 2 + Math.sin(a) * r;
+    const rad = N * (0.14 + Math.random() * 0.2), gr = g.createRadialGradient(x, y, 0, x, y, rad);
+    gr.addColorStop(0, 'rgba(255,255,255,0.22)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, N, N);
+  }
+  // máscara redonda: nada encosta na borda do quadrado (senão aparece a "caixa" do sprite)
+  g.globalCompositeOperation = 'destination-in';
+  const m = g.createRadialGradient(N / 2, N / 2, 0, N / 2, N / 2, N / 2);
+  m.addColorStop(0, 'rgba(0,0,0,1)'); m.addColorStop(0.55, 'rgba(0,0,0,0.6)'); m.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = m; g.fillRect(0, 0, N, N);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const smokeTex = makeSmokeTex();
+const dustCol = new THREE.Color(), dustHSL = {};
+function dustify(hex) { // qualquer cor vira pó: pouca saturação, claridade entre escuro e cinza médio
+  dustCol.setHex(hex).getHSL(dustHSL);
+  return dustCol.setHSL(0.08, Math.min(0.12, dustHSL.s * 0.15), Math.min(0.42, Math.max(0.1, dustHSL.l * 0.6)));
+}
 const puffs = [];
-const puffGeo = new THREE.SphereGeometry(1, 8, 6);
-// IMPORTANTE (desempenho): materiais reaproveitados de um "pool" e nunca descartados. Criar e dar dispose() num material por nuvem
-// fazia o three.js destruir e recompilar o shader sempre que as nuvens acabavam: travadas a cada parede/objeto quebrado.
-const puffPool = [];
-function getPuffMat() { return puffPool.pop() ?? new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false }); } // sem iluminação: bem mais barato com 9 luzes
-function freePuff(p) { scene.remove(p.m); puffPool.push(p.m.material); }
-{ const warm = new THREE.Mesh(puffGeo, getPuffMat()); warm.position.y = -50; warm.frustumCulled = false; scene.add(warm); puffPool.push(warm.material); } // mantém o shader compilado
-function spawnPuff(x, y, z, size, color = 0x8a8299, life = 0.7, opacity = 0.45, rise = 1) {
-  const mt = getPuffMat(); mt.color.setHex(color); mt.opacity = opacity;
-  const m = new THREE.Mesh(puffGeo, mt);
-  m.position.set(x, y, z); m.scale.setScalar(size * 0.35);
+// IMPORTANTE (desempenho): materiais reaproveitados de um "pool" e nunca descartados (dispose recompilava o shader: travadas)
+const puffPool = [], firePool = [];
+function getPuffMat(fire) {
+  const pool = fire ? firePool : puffPool;
+  return pool.pop() ?? new THREE.SpriteMaterial({ map: smokeTex, transparent: true, depthWrite: false, blending: fire ? THREE.AdditiveBlending : THREE.NormalBlending });
+}
+function freePuff(p) { scene.remove(p.m); (p.fire ? firePool : puffPool).push(p.m.material); }
+for (const fire of [false, true]) { const warm = new THREE.Sprite(getPuffMat(fire)); warm.position.y = -50; warm.frustumCulled = false; scene.add(warm); (fire ? firePool : puffPool).push(warm.material); } // mantém os shaders compilados
+function spawnPuff(x, y, z, size, color = 0x8a8299, life = 0.7, opacity = 0.45, rise = 1, fire = false) {
+  const mt = getPuffMat(fire);
+  if (fire) mt.color.setHex(color); else mt.color.copy(dustify(color));
+  mt.rotation = Math.random() * Math.PI * 2;
+  const m = new THREE.Sprite(mt);
+  m.position.set(x, y, z); m.scale.setScalar(size * 0.7);
   scene.add(m);
-  puffs.push({ m, t: 0, life, size, opacity, rise, vx: (Math.random() - 0.5) * 1.6, vz: (Math.random() - 0.5) * 1.6 });
+  puffs.push({ m, t: 0, life: life * (fire ? 1 : 1.6), size: size * 2.2, opacity: opacity * (fire ? 0.8 : 0.5), rise: rise * 0.45, fire,
+    spin: (Math.random() - 0.5) * 0.8, vx: (Math.random() - 0.5) * 0.7, vz: (Math.random() - 0.5) * 0.7 });
   while (puffs.length > 50) freePuff(puffs.shift());
 }
 function updatePuffs(dt) {
   for (const p of [...puffs]) {
     p.t += dt;
     const k = p.t / p.life;
-    p.m.scale.setScalar(p.size * (0.35 + 0.65 * Math.sqrt(Math.min(1, k))));
-    p.m.material.opacity = p.opacity * Math.max(0, 1 - k);
-    p.m.position.x += p.vx * dt; p.m.position.z += p.vz * dt; p.m.position.y += p.rise * dt * (1 - k);
+    p.m.scale.setScalar(p.size * (0.32 + 0.68 * (1 - Math.pow(1 - Math.min(1, k), 2)))); // abre rápido e depois quase para
+    p.m.material.opacity = p.opacity * Math.min(1, k * 6) * Math.pow(Math.max(0, 1 - k), 1.5); // entra suave, some devagar
+    p.m.material.rotation += p.spin * dt;
+    const drag = 1 - k * 0.8;
+    p.m.position.x += p.vx * dt * drag; p.m.position.z += p.vz * dt * drag; p.m.position.y += p.rise * dt * (1 - k);
     if (k >= 1) { freePuff(p); puffs.splice(puffs.indexOf(p), 1); }
   }
 }
@@ -1912,7 +1955,7 @@ function breakProp(p, dir, force = 10) {
 function damageProp(p, amount, dir) {
   p.hp -= amount;
   p.wobble = 1;
-  sfx.knock(p.obj.position);
+  sfx.impact(p.type, p.obj.position, 0.8);
   spawnDebris(p.obj.position, p.T.color, 3, dir, 6);
   state.shake = Math.max(state.shake, 0.3);
   if (p.hp <= 0) breakProp(p, dir, 16);
@@ -1925,10 +1968,10 @@ function vodkaBoom(pos, dir) {
   vib(120);
   const R = CFG.vodkaBoomRadius, x = pos.x, y = pos.y, z = pos.z;
   boomLight.position.set(x, y + 0.6, z); state.boomT = 0.6;
-  sfx.slam(); sfx.breakProp('vodka', { x, y, z });
+  sfx.explosion({ x, y, z }); sfx.breakProp('vodka', { x, y, z });
   state.shake = Math.max(state.shake, 1.0); state.flash = Math.max(state.flash, 0.4); state.hitstop = Math.max(state.hitstop, 0.06);
   // bola de fogo + fumaça + anel no chão
-  for (let i = 0; i < 9; i++) spawnPuff(x + (Math.random() - 0.5) * 1.6, y + 0.3 + Math.random() * 1.2, z + (Math.random() - 0.5) * 1.6, 1.4 + Math.random() * 1.2, i % 3 ? 0xff7a1a : 0xffd060, 0.45 + Math.random() * 0.2, 0.85, 1.5);
+  for (let i = 0; i < 9; i++) spawnPuff(x + (Math.random() - 0.5) * 1.6, y + 0.3 + Math.random() * 1.2, z + (Math.random() - 0.5) * 1.6, 1.4 + Math.random() * 1.2, i % 3 ? 0xc0501a : 0xd08a30, 0.45 + Math.random() * 0.2, 0.7, 1.5, true);
   for (let i = 0; i < 6; i++) spawnPuff(x + (Math.random() - 0.5) * 2, y + 0.8 + Math.random() * 1.4, z + (Math.random() - 0.5) * 2, 2.2 + Math.random() * 1.4, 0x1a1414, 1.4 + Math.random() * 0.6, 0.6, 1.0);
   spawnShockwave({ x, y, z }, R);
   // fantasma: dano e empurrão que caem com a distância (mesmo andar)
@@ -1938,7 +1981,7 @@ function vodkaBoom(pos, dir) {
       const f = 1 - Math.min(1, d / (R + CFG.bossRadius)) * 0.6;
       if (d > 0.05) boomTo.divideScalar(d); else boomTo.set(dir?.x ?? 0, 0, dir?.z ?? -1);
       damageBoss(CFG.vodkaBoomDamage * f);
-      launchBoss(boomTo, CFG.attacks.boom, f); registerHit(CFG.attacks.boom.hitstop, CFG.attacks.boom.squash);
+      launchBoss(boomTo, CFG.attacks.boom, f); registerHit(CFG.attacks.boom.hitstop, CFG.attacks.boom.squash, 'none');
     }
   }
   // você também se queima se estiver perto demais
@@ -1961,7 +2004,7 @@ function hitBossWithProp(p, dir) {
   const atk = CFG.attacks[p.type] ?? CFG.attacks.chair; // cada objeto empurra de um jeito (vaso < tábua < cadeira < caixa)
   damageBoss(p.T.dmg * p.dmgMul);
   launchBoss(dir, atk, p.knock);
-  registerHit(atk.hitstop, atk.squash);
+  registerHit(atk.hitstop, atk.squash, p.type);
   state.shake = Math.max(state.shake, atk.shake);
   breakProp(p, dir, 12);
 }
@@ -1998,6 +2041,7 @@ function updateProps(dt, t) {
       const gp = groundY(o.position.x, o.position.z, o.position.y + 0.5);
       if (o.position.y <= gp && p.armed) { o.position.y = gp; breakProp(p, propDir.set(p.vel.x, 0, p.vel.z).normalize(), 6); continue; } // garrafa armada explode no chão
       if (o.position.y <= gp) {
+        if (p.vel.y < -3) sfx.impact(p.type, o.position, Math.min(0.8, -p.vel.y / 14)); // bateu no chão: som do material
         o.position.y = gp; p.vel.y = 0; p.falling = false;
         p.vel.x *= Math.pow(0.02, dt); p.vel.z *= Math.pow(0.02, dt);
       }
@@ -2115,7 +2159,7 @@ function findGrabbable() {
 function drinkVodka(p) {
   p.empty = true;
   p.obj.getObjectByName('liquid')?.removeFromParent();
-  state.drinkT = CFG.vodkaDrinkTime;
+  state.drinkT = CFG.vodkaDrinkTime; state.gulpN = -1;
   const before = state.hp;
   state.hp = Math.min(CFG.playerMaxHp, state.hp + CFG.vodkaHeal);
   sfx.drink();
@@ -2129,23 +2173,25 @@ function interact() {
   if (canGrabBoss()) { grabBoss(); return; }
   const p = findGrabbable();
   if (!p) return;
-  // o objeto sai da cena e vira FILHO DA CÂMERA: passa a acompanhar o olhar (hierarquia de transformações)
+  // o objeto sai da cena e vira filho do grupo das MÃOS (que é filho da câmera): acompanha o olhar e as mãos o seguram
   state.held = p;
   p.held = true;
   p.vel.set(0, 0, 0);
-  camera.add(p.obj);
-  p.obj.position.set(0.05, -0.78, -1.25);
-  p.obj.rotation.set(0.25, 0.6, 0);
-  p.obj.scale.setScalar(0.5);
+  p.obj.rotation.set(0, 0, 0); p.obj.position.set(0, 0, 0); p.obj.scale.setScalar(1);
+  const bb = new THREE.Box3().setFromObject(p.obj); // tamanho do objeto (para as mãos encostarem nas laterais)
+  p.grip = { ...(GRIP[p.type] ?? GRIP_DEFAULT), halfW: (bb.max.x - bb.min.x) * 0.25, h: (bb.max.y - bb.min.y) * 0.5 };
+  if (p.grip.two) { viewmodel.add(p.obj); p.obj.scale.setScalar(0.5); }
+  else { const L = p.grip.local; hands[1].fist.add(p.obj); p.obj.position.fromArray(L.pos); p.obj.rotation.set(L.rot[0], L.rot[1], L.rot[2]); p.obj.scale.setScalar(L.s); }
   setCastShadow(p.obj, false);
-  sfx.pick();
+  state.grabAnimT = 0.22; // a mão vai até o objeto
+  if (p.type === 'vodka') sfx.clink(); else if (p.grip.two) sfx.heave(); else sfx.pick();
   state.shake = Math.max(state.shake, 0.1);
   if (p.type === 'vodka' && !p.empty) drinkVodka(p);
 }
 
 // devolve o objeto da mão para a cena, na posição do mundo dada
 function releaseHeld(x, y, z) {
-  const p = state.held;
+  const p = state.held; state.gulpN = -1;
   state.held = null;
   p.held = false;
   p.obj.removeFromParent();
@@ -2163,11 +2209,17 @@ function dropHeld() {
   const p = releaseHeld(player.position.x + fwd.x * 1.2, 0.9, player.position.z + fwd.z * 1.2);
   clampToRoom(p.obj.position, 0.8);
   p.falling = true; // cai no chão e pode ser pego de novo
-  sfx.knock();
+  sfx.impact(p.type, p.obj.position, 0.35);
 }
 
+// ARREMESSO ANIMADO: o braço (ou os dois, em objeto pesado) vai para trás e lança; o objeto sai da mão no meio do movimento
+const THROW_TIME = 0.34, THROW_RELEASE = 0.42;
 function throwHeld() {
-  if (!state.held || state.drinkT > 0) return; // bebendo: termina o gole primeiro
+  if (!state.held || state.drinkT > 0 || state.throwT >= 0) return; // bebendo/arremessando: termina primeiro
+  state.throwT = 0; state.throwTwo = !!state.held.grip?.two;
+  sfx.grunt(state.throwTwo ? 0.8 : 0.5);
+}
+function releaseThrow() {
   // direção: para onde você olha; MIRA ASSISTIDA: se o boss está quase na mira, o arremesso vai direto nele
   throwDir.set(0, 0, -1).applyAxisAngle(UP, look.yaw);
   if (B.mode !== 'dying') {
@@ -2190,17 +2242,18 @@ function throwHeld() {
 const smooth01 = (x) => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
 function updateHeld(t) {
   if (state.held) {
-    const o = state.held.obj;
-    if (state.drinkT > 0) {
-      // ANIMAÇÃO DE BEBER: leva a garrafa até a boca, inclina o gargalo para trás, dá o gole e volta (quadros-chave suavizados)
-      const u = 1 - state.drinkT / CFG.vodkaDrinkTime;              // 0 -> 1
-      const k = u < 0.25 ? smooth01(u / 0.25) : u > 0.8 ? smooth01((1 - u) / 0.2) : 1;
-      // pose final: gargalo logo abaixo dos olhos, fundo da garrafa erguido para a frente (gargalo apontando para a boca)
-      o.position.set(0.05 - 0.05 * k, -0.78 + 0.81 * k + (k === 1 ? Math.sin(t * 22) * 0.006 : 0), -1.25 + 0.875 * k);
-      o.rotation.set(0.25 + 1.85 * k, 0.6 * (1 - k), 0);
-    } else {
-      o.position.set(0.05, -0.78 + Math.sin(t * 3) * 0.012, -1.25);
-      o.rotation.set(0.25, 0.6 + Math.sin(t * 1.7) * 0.05, 0);
+    const o = state.held.obj, g = state.held.grip ?? GRIP_DEFAULT;
+    if (state.drinkT > 0) { // goles ("glup") no meio do gole; a animação é da mão (o objeto está preso nela)
+      const u = 1 - state.drinkT / CFG.vodkaDrinkTime;
+      const gulpN = Math.floor((u - 0.3) / 0.13); if (u > 0.3 && u < 0.8 && gulpN !== state.gulpN) { state.gulpN = gulpN; sfx.gulp(); }
+    }
+    if (g.two) {
+      if (state.throwT >= 0) { const hp = hands[1].p; o.position.set(0, hp[1] - g.h * 0.55, hp[2] - 0.05); o.rotation.x += (g.rot[0] - 0.3 - o.rotation.x) * 0.3; }
+      else {
+        const bob = Math.sin(t * 3) * 0.012, k = state.grabAnimT > 0 ? 0.35 : 1; // acabou de pegar: o objeto "vem" até as mãos
+        o.position.x += (g.obj[0] - o.position.x) * k; o.position.y += (g.obj[1] + bob - o.position.y) * k; o.position.z += (g.obj[2] - o.position.z) * k;
+        o.rotation.set(g.rot[0], g.rot[1] + Math.sin(t * 1.7) * 0.04, g.rot[2]);
+      }
     }
   }
   let msg = '';
@@ -2382,7 +2435,16 @@ const lungeDir = new THREE.Vector3();
 
 // poses dos dois braços: golpe (keyframes) > segurando objeto > esquiva > guarda com balanço
 const poseTmp = [0, 0, 0, 0, 0, 0, 0];
+const _ht = [0, 0, 0, 0, 0, 0, 1];
 function updateHands(dt) {
+  // relógios das animações de mão
+  state.grabAnimT = Math.max(0, (state.grabAnimT ?? 0) - dt);
+  if (state.tossT >= 0) { state.tossT += dt; if (state.tossT > 0.4) state.tossT = -1; }
+  if (state.throwT >= 0) {
+    const before = state.throwT; state.throwT += dt;
+    if (before < THROW_TIME * THROW_RELEASE && state.throwT >= THROW_TIME * THROW_RELEASE && state.held) releaseThrow(); // solta no meio do movimento
+    if (state.throwT > THROW_TIME) state.throwT = -1;
+  }
   const a = state.atk;
   const t = state.time;
   const walking = (keys.KeyW || keys.KeyA || keys.KeyS || keys.KeyD) && state.dodgeT < 0 ? 1 : 0;
@@ -2393,13 +2455,22 @@ function updateHands(dt) {
       const M = MOVES[a.kind];
       frames = (a.hand === 2 || a.hand === (side > 0 ? 1 : 0)) ? M.strike : M.off;
     }
+    const ht = _ht; let shape = 'fist';
+    for (let j = 0; j < 7; j++) ht[j] = h.p[j];
+    const special = !frames ? handTarget(h, ht) : null;
     if (frames) {
       sampleKF(frames, THREE.MathUtils.clamp(a.t / MOVES[a.kind].dur, 0, 1), h.p);
+    } else if (special) {
+      // segurando/bebendo/arremessando/agarrando: segue o alvo rápido (o arremesso já vem interpolado)
+      const k = state.throwT >= 0 || state.tossT >= 0 || state.drinkT > 0 ? 1 : 1 - Math.exp(-dt * (state.grabAnimT > 0 ? 22 : 16));
+      for (let j = 0; j < 7; j++) h.p[j] += (ht[j] - h.p[j]) * k;
+      shape = special;
     } else {
-      const target = state.held ? HELD_POSE : state.dodgeT >= 0 ? DODGE_POSE : G;
+      const target = state.dodgeT >= 0 ? DODGE_POSE : G;
       const k = 1 - Math.exp(-dt * 16);
       for (let j = 0; j < 7; j++) h.p[j] += (target[j] - h.p[j]) * k;
     }
+    setShape(h, shape);
     // respiração + balanço ao andar (só quando não está golpeando)
     const idle = frames ? 0 : 1;
     const ph = side > 0 ? 0 : Math.PI;
@@ -2410,6 +2481,67 @@ function updateHands(dt) {
     h.fist.rotation.set(p[3], p[4] * side, p[5] * side);
     h.fist.scale.setScalar(p[6]);
   }
+}
+
+// ---------- POSES DAS MÃOS segurando, bebendo, agarrando e arremessando (Etapa 44) ----------
+// Cada tipo de objeto diz como é segurado: com uma mão (a direita; a esquerda fica em guarda baixa) ou com as duas
+// (uma de cada lado, encostadas nas laterais). `obj` é onde o objeto fica (espaço das mãos/câmera) e `rot` a rotação dele.
+const GRIP_DEFAULT = { two: false, local: { pos: [0.08, -0.06, -0.06], rot: [0, 0, Math.PI / 2], s: 0.4 } };
+const HOLD1 = [0.30, -0.36, -0.66, -0.15, 0.15, -1.35, 1]; // segurando com uma mão: mão de lado (polegar para cima)
+// beber: leva a mão até a boca e inclina a garrafa para trás (o gargalo vem para o rosto)
+const DRINK_KF = [[0, ...HOLD1], [0.25, 0.06, -0.1, -0.4, 2.15, 0.1, -1.35, 0.95], [0.8, 0.06, -0.08, -0.38, 2.35, 0.1, -1.35, 0.95], [1, ...HOLD1]];
+const GRIP = {
+  // uma mão: `local` = posição/rotação/escala do objeto DENTRO do punho (a mão gira de lado, polegar para cima,
+  // e o objeto atravessa a mão fechada); a mão faz a animação e o objeto vai junto
+  vodka:  { two: false, local: { pos: [0.09, -0.02, -0.04], rot: [0, 0, Math.PI / 2], s: 0.42 } },
+  vase:   { two: false, local: { pos: [0.16, -0.02, -0.06], rot: [0, 0, Math.PI / 2], s: 0.34 } },
+  ball:   { two: false, local: { pos: [0.0, -0.13, -0.08], rot: [0, 0, 0], s: 0.42 } },
+  pillow: { two: false, local: { pos: [0.08, -0.1, -0.06], rot: [0, 0, Math.PI / 2], s: 0.4 } },
+  plank:  { two: false, local: { pos: [0.0, -0.02, -0.05], rot: [0, 0, Math.PI / 2], s: 0.42 } },
+  crate:  { two: true, obj: [0, -0.86, -0.92], rot: [0.05, 0.2, 0] },
+  barrel: { two: true, obj: [0, -0.90, -0.92], rot: [0.05, 0, 0] },
+  tv:     { two: true, obj: [0, -0.86, -0.92], rot: [0.05, Math.PI, 0] },
+  chair:  { two: true, obj: [0, -0.95, -0.98], rot: [0.1, Math.PI, 0] },
+};
+const LOW_GUARD = [0.36, -0.52, -0.55, -0.45, 0, 0, 1];
+const _hv = new THREE.Vector3(), _hq = new THREE.Quaternion(), _he = new THREE.Euler();
+function setShape(h, k) { if (!h.shapes) return; for (const n in h.shapes) h.shapes[n].visible = n === k; }
+// pose de cada mão (direita = side 1) e formato da mão, conforme o que o jogador está fazendo agora
+function handTarget(h, out) {
+  const side = h.side, right = side > 0, p = state.held;
+  // AGARRANDO O FANTASMA: as duas mãos vão abertas até ele e fecham nos cabelos/ombros, sacudindo
+  if (B.mode === 'grabbed') {
+    const k = Math.min(1, B.t / 0.15), shake = Math.sin(state.time * 38 + side) * 0.02;
+    out.splice(0, 7, 0.27, -0.4 + shake, -0.98 + 0.25 * (1 - k), -0.12, 0.15, -0.8, 0.95); // braços baixos esticados, mãos fechando nela (palmas meio para dentro)
+    return k < 1 ? 'open' : 'grip';
+  }
+  if (state.tossT >= 0) { // arremessou o fantasma: as duas mãos terminam o movimento para a frente
+    const u = Math.min(1, state.tossT / 0.4);
+    sampleKF([[0, 0.27, -0.4, -0.98, -0.12, 0.15, -0.8, 0.95], [0.35, 0.22, -0.28, -1.1, -0.6, 0, -0.5, 1], [1, ...G]], u, out); // empurra para a frente e volta à guarda
+    return u < 0.35 ? 'open' : 'fist';
+  }
+  if (p && state.throwT >= 0) { // ARREMESSANDO um objeto
+    const u = Math.min(1, state.throwT / THROW_TIME);
+    if (state.throwTwo || right) {
+      const g = p.grip, back = state.throwTwo ? [g.halfW + 0.08, -0.72, -0.55, 0.25, 0.3, -1.3, 0.95] : [0.40, 0.02, -0.25, 0.35, 0.1, -1.35, 1];
+      sampleKF([[0, ...(state.throwTwo ? out : HOLD1)], [0.38, ...back], [0.6, state.throwTwo ? 0.22 : 0.12, state.throwTwo ? -0.3 : -0.08, -1.05, state.throwTwo ? -0.7 : -1.5, 0, state.throwTwo ? -1.1 : -1.0, 1], [1, ...G]], u, out);
+      return u < 0.6 ? 'grip' : 'open';
+    }
+    out.splice(0, 7, ...LOW_GUARD); return 'fist';
+  }
+  if (p) {
+    const g = p.grip;
+    if (g.two) { // uma mão de cada lado do objeto
+      out.splice(0, 7, g.halfW + 0.11, g.obj[1] + g.h * 0.6, g.obj[2] + 0.12, -0.2, 0.25, -1.3, 0.95); // mãos nas laterais, palmas para dentro, braços vindo de baixo
+      return 'grip';
+    }
+    if (!right) { out.splice(0, 7, ...LOW_GUARD); return 'fist'; }
+    // uma mão: o objeto está preso no punho; a mão faz a pose (parada de lado, ou bebendo)
+    if (state.drinkT > 0) sampleKF(DRINK_KF, 1 - state.drinkT / CFG.vodkaDrinkTime, out);
+    else { out.splice(0, 7, ...HOLD1); out[1] += Math.sin(state.time * 3) * 0.008; }
+    return 'grip';
+  }
+  return null; // sem objeto: guarda/socos (decidido em updateHands)
 }
 
 const COLORS = {
@@ -2475,7 +2607,7 @@ function bossHitFx(into, k = 1) {
   if (B.mode !== 'dying') damageBoss(CFG.wallSlamDamage * k + into * 0.02);
   sfx.wall();
   sfx.scream(power, bossAt(), 0.4, 'hit');
-  registerHit(0.05 + 0.07 * power, 0.9);
+  registerHit(0.05 + 0.07 * power, 0.9, 'none');
   state.shake = Math.max(state.shake, 0.5 + 0.5 * power);
   state.flash = Math.max(state.flash, 0.2 + 0.4 * power);
   if (power > 0.6) state.slow = Math.max(state.slow, 0.2);
@@ -2670,7 +2802,7 @@ function updateBoss(dt) {
   if (terrified() && B.mode !== 'dying' && B.mode !== 'grabbed') B.terrorT = (B.terrorT || 0) + dt; else if (!terrified()) B.terrorT = 0;
   if (B.terrorT >= CFG.terrorMax && !B.launch && (B.mode === 'chase' || B.mode === 'stun')) { // (mesmo apanhando: levanta gritando)
     B.terrorT = 0; B.fear = 35; B.fearHold = 0; B.calmT = CFG.calmAfterSnap;
-    sfx.scream(0.8, bossAt(), 0.6, 'launch'); state.moveNameT = 1; elMoveName.textContent = tx('snap');
+    sfx.shriek(bossAt(), 1.0, 1); sfx.stinger(0.7); state.moveNameT = 1; elMoveName.textContent = tx('snap');
     B.quick = true; if (Math.hypot(boss.position.x - player.position.x, boss.position.z - player.position.z) < 9) setBossMode('windup');
   }
   if (terrified() && (B.mode === 'windup' || B.mode === 'swipe' || B.mode === 'dash' || B.mode === 'possess' || B.mode === 'ceil')) {
@@ -2762,11 +2894,11 @@ function updateBoss(dt) {
   } else if (B.mode === 'grabbed') {
     // ERGUIDO: fica preso na sua frente se debatendo e, depois de um instante, voa para onde você estiver olhando
     fwdP.set(0, 0, -1).applyAxisAngle(UP, look.yaw);
-    boss.position.set(player.position.x + fwdP.x * 1.3, player.position.y + 0.5 + Math.min(0.4, B.t), player.position.z + fwdP.z * 1.3);
+    boss.position.set(player.position.x + fwdP.x * 1.45, player.position.y + Math.min(0.25, B.t * 0.6), player.position.z + fwdP.z * 1.45); // erguida um pouco do chão
     B.vy = 0; B.vel.set(0, 0, 0); sc = CFG.bossScale * (1 + Math.sin(B.t * 40) * 0.03);
     if (B.t >= 0.55) {
-      damageBoss(CFG.tossDamage); launchBoss(fwdP, CFG.attacks.toss); registerHit(CFG.attacks.toss.hitstop, CFG.attacks.toss.squash);
-      sfx.throwObj(); state.shake = 0.9; state.slow = Math.max(state.slow, 0.35); state.kick.pitch += 0.08;
+      damageBoss(CFG.tossDamage); launchBoss(fwdP, CFG.attacks.toss); registerHit(CFG.attacks.toss.hitstop, CFG.attacks.toss.squash, 'none');
+      sfx.throwObj(); sfx.grunt(1); state.tossT = 0; state.shake = 0.9; state.slow = Math.max(state.slow, 0.35); state.kick.pitch += 0.08;
     }
   } else if (B.mode === 'swipe') {
     // GARRAS: aviso curto (encolhe e mira) e uma estocada curta; repete 2 ou 3 vezes seguidas
@@ -2880,7 +3012,7 @@ function updateBoss(dt) {
       if (dx * dx + dz * dz < r * r) {
         breakProp(p, propDir, 14);
         // só móveis grandes machucam o boss (tábuas e objetos pequenos não)
-        if (B.launch && B.mode !== 'dying' && p.T.size === 'large') { damageBoss(CFG.smashSelfDamage); registerHit(0.05, 0.5); }
+        if (B.launch && B.mode !== 'dying' && p.T.size === 'large') { damageBoss(CFG.smashSelfDamage); registerHit(0.05, 0.5, 'none'); }
       }
     }
   }
@@ -2922,12 +3054,11 @@ function updateBoss(dt) {
       B.launch = false; B.vel.set(0, 0, 0); B.w.set(0, 0, 0);
       if (B.mode !== 'dying') { B.t = 0; B.stunDur = Math.max(0.35, B.lieT); }
     }
-    // rastro: poeira no chão, "eco" fantasma no ar
+    // rastro: poeira levantada no chão (o antigo "eco" azul no ar saiu: era cartoon demais)
     B.trailT -= dt;
     if (B.trailT <= 0 && sp > 8) {
       B.trailT = 0.04;
-      if (B.grounded) spawnPuff(pos.x, 0.25 + gyB, pos.z, 0.8 + sp * 0.02, 0x6f6678, 0.8, 0.4, 1.2);
-      else spawnPuff(pos.x, pos.y + 1.3, pos.z, 1.0, 0x9fd0ff, 0.45, 0.28, 0);
+      if (B.grounded && Math.random() < 0.6) spawnPuff(pos.x, 0.25 + gyB, pos.z, 0.8 + sp * 0.02, 0x6f6678, 0.8, 0.4, 1.2);
     }
   }
 
@@ -3025,6 +3156,7 @@ function updateBoss(dt) {
   void emissive; void intensity;
 }
 
+let realDtAudio = 0.016;
 function animate() {
   rafId = requestAnimationFrame(animate);
   clock.update();
@@ -3035,7 +3167,7 @@ function animate() {
   if (pausedNow !== audioPaused) { audioPaused = pausedNow; sfx.setPaused(pausedNow); } // pausa também congela o som
   if (!locked && !state.over) { updateHud(); renderer.render(scene, camera); return; }
   // hitstop: o jogo quase congela por um instante quando um golpe acerta
-  const realDt = dt;
+  const realDt = dt; realDtAudio = dt;
   if (!settings.hitstop) state.hitstop = 0;
   if (!settings.slowmo) state.slow = 0;
   if (state.hitstop > 0) { state.hitstop -= dt; dt *= 0.08; }
@@ -3095,7 +3227,7 @@ function animate() {
   const kd = Math.exp(-dt * 9);
   state.kick.pitch *= kd; state.kick.roll *= kd;
   const gulp = state.drinkT > 0 ? Math.sin(Math.PI * (1 - state.drinkT / CFG.vodkaDrinkTime)) : 0; // a cabeça inclina para trás no gole
-  camera.rotation.set(look.pitch + aPitch + state.kick.pitch + gulp * 0.22, look.yaw + aYaw, aRoll + state.kick.roll);
+  camera.rotation.set(look.pitch + aPitch + state.kick.pitch + gulp * 0.12, look.yaw + aYaw, aRoll + state.kick.roll);
   // tremor de impacto (posição + inclinação lateral)
   if (state.shake > 0) {
     state.shake = Math.max(0, state.shake - dt * 2.5);
@@ -3109,6 +3241,7 @@ function animate() {
   const bd = Math.hypot(boss.position.x - player.position.x, boss.position.z - player.position.z);
   sfx.setTension(B.mode === 'dying' ? 0 : THREE.MathUtils.clamp(1 - (bd - 2) / 8, 0, 1));
   sfx.tick(dt, { walking: !!moving && state.dodgeT < 0, listenerPos: player.position });
+  sfx.watchdog(realDtAudio); // vigia do áudio: se a saída travar (mudo/valor inválido), reconstrói
 
   // esquiva: campo de visão se abre por um instante (sensação de velocidade)
   state.fovKick = Math.max(0, state.fovKick - dt * 40);

@@ -1,0 +1,9 @@
+Modelos 3D prontos (glTF binario, .glb) usados pelo jogo. Se um arquivo nao existir, o jogo usa o personagem de primitivas.
+
+ghost.glb  -> o fantasma. Precisa ter esqueleto e animacoes; os clipes sao reconhecidos pelo NOME (qualquer caixa):
+  idle | walk | run | crawl | attack (ou scream/claw) | cast | hit | fall (ou knock/flying) | down (ou lying/get up) | death
+  Faltando algum, o jogo usa o mais parecido (ex.: sem "crawl" ele anda no teto de cabeca para baixo).
+  O modelo deve olhar para +Z (padrao do Mixamo/glTF). O tamanho e ajustado sozinho.
+
+Para converter/enxugar:  bash tools/optimize_models.sh  arquivo.fbx  public/models/ghost.glb
+Credite o autor e a licenca de cada modelo no README.

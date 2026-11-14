@@ -357,7 +357,7 @@ export function createAudio(initial = {}) {
   };
   api.breakProp = (type, at = null, large = false) => {
     if (!ok()) return;
-    if (type === 'vase' || type === 'beer') glass(at);
+    if (type === 'vase' || type === 'vodka') glass(at);
     else if (type === 'tv') { glass(at); for (let i = 0; i < 3; i++) noise(0.03, { type: 'highpass', f0: 2500, gain: 0.5, delay: i * 0.06, at }); noise(0.15, { type: 'lowpass', f0: 300, gain: 1.0, at }); }
     else if (type === 'barrel') { noise(0.2, { type: 'lowpass', f0: 350, gain: 3.2, at }); modes([280, 610, 1180], 0.5, 0.6, at, 0, 30); noise(0.01, { type: 'highpass', f0: 3500, gain: 0.4, at }); }
     else if (type === 'ball') noise(0.15, { type: 'lowpass', f0: 250, gain: 3.5, at });

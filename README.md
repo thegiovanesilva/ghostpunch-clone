@@ -562,6 +562,222 @@ Pedido: jogar no celular; o jogo vai para a Vercel para um amigo testar.
 - No iPhone o Safari não permite tela cheia fora de vídeo (`document.fullscreenEnabled` é falso), então os botões não aparecem lá.
 - **Testado**: emulação de celular: entra e sai da tela cheia pelo botão, ícone/texto mudam, sem erros. **Não testável aqui**: comportamento em Android/iOS reais.
 
+### Etapa 26 — Teste de texturas (branch `textures-test`): abordagem híbrida, visual pesado
+
+Pedido: branch nova para testar texturas; híbrido (procedural + imagens); "visual bem pesado e assustador".
+
+- **Superfícies procedurais** (`src/textures.js`, geradas num `<canvas>` ao iniciar, sem arquivos; cor + mapa de relevo/bump):
+  piso de tábuas escuras (frestas, nós, veios, arranhões, manchas), **papel de parede vitoriano apodrecendo** (listras e arabescos, lambri escuro embaixo, fuligem no alto, escorridos de infiltração, mofo, pedaços descascados, rachaduras), **gesso rachado** nas divisórias, teto com auréolas de infiltração, madeira (escada, plataformas, batentes, vigas) e uma camada de **sujeira** nos móveis (bordas escurecidas, arranhões) que multiplica a cor de cada peça.
+- **UV pelo mundo** (`worldUV`): paredes, piso e teto são a mesma caixa unitária escalada, então a textura esticaria. Um trecho injetado no vertex shader (`onBeforeCompile`) calcula as coordenadas de textura pela posição no mundo; o papel de parede cobre exatamente o pé-direito (sujeira no alto e lambri embaixo ficam no lugar certo em qualquer parede).
+- **Imagens autorais** (`public/textures/`, desenhadas por código em `tools/bake_textures.py` com PIL/numpy; ~650 KB no total): 4 retratos a óleo escurecidos (3 com os olhos riscados), 2 paisagens, tapete e passadeira gastos, azulejo encardido da cozinha, porta de entrada arranhada com marca de mão, e 4 manchas de **sangue** com transparência usadas como decalques (8 no piso, 7 nas paredes).
+  - Tentei baixar texturas de domínio público (Poly Haven / ambientCG), mas este ambiente não tem acesso a esses sites; por isso as imagens foram geradas aqui. Para trocar por fotos reais, basta substituir os arquivos em `public/textures/` mantendo os nomes.
+- **Clima**: vinheta escurecendo as bordas da tela e névoa um pouco mais fechada.
+- **Opção no menu** "Texturas, sangue e vinheta": liga/desliga tudo na hora para comparar com a cor lisa (fica salva). O fantasma e as mãos continuam sem textura.
+- **Testado**: capturas de tela em vários pontos da casa (piso, papel de parede, gesso, azulejo, tapete, retrato, sangue na parede e no chão, plataforma), liga/desliga pelo menu, sem erros de console nem imagens faltando, `npm run build` copia as imagens para `dist/textures`, controles de toque continuam funcionando.
+- **Problemas achados nas capturas e corrigidos**: sangue invisível (escuro demais sobre piso escuro → clareado) e depois "lavado" por brilho especular (→ material fosco); azulejo grande demais.
+- **Não testável aqui**: custo no celular (são ~8 texturas de 512–1024 px e mais um mapa de relevo por material), se o conjunto ficou escuro demais para jogar, e o julgamento estético (só vi capturas com renderização por software).
+
+### Etapa 27 — HUD e menus sombrios (branch `textures-test`)
+
+- Novo tema visual da interface (bloco "TEMA SOMBRIO" no CSS do `index.html`): paleta preto / osso / sangue seco no lugar do rosa e roxo, fonte serifada antiga com letras espaçadas, barras de vida com degradê escuro (jogador vermelho-sangue; fantasma cinza pálido, vermelho na fase 2), menu em painel quase preto com moldura fina e título com brilho vermelho, botões sóbrios, mira menor, alerta de dano e tela de fim de jogo em vermelho escuro. Botões de toque, joystick, pausa e tela cheia seguem o mesmo tema.
+- **Bug antigo corrigido**: o parágrafo "Controles no celular" aparecia também no menu do computador (a regra que o escondia só existia no modo toque).
+- **Testado**: capturas do menu, do HUD no computador e do HUD de toque; sem erros de console. **Não testável aqui**: legibilidade em tela real (o tema é propositalmente de baixo contraste) — se algum texto ficar difícil de ler, é só clarear a cor `#b9ae9c`/`#6f665b` no CSS.
+
+### Etapa 28 — Suporte a modelos prontos com esqueleto e animação (branch `textures-test`)
+
+Decisão: usar modelos prontos para os personagens (mais alinhado ao que foi visto em aula), sem pesar; usar os algoritmos de remoção de faces ocultas da Aula 10 como otimização.
+
+- **`src/models.js`**: carrega `public/models/ghost.glb` (glTF binário) com `GLTFLoader`, ajusta o tamanho sozinho, e toca os clipes com `AnimationMixer` e transição suave. Os clipes são reconhecidos pelo nome (`idle`, `walk`, `run`, `crawl`, `attack`, `cast`, `hit`, `fall`, `down`, `death`) e cada estado do chefe pede um papel, com substitutos se faltar (ver `public/models/LEIA-ME.txt`). O deslocamento do quadril é removido dos clipes (quem move é a física do jogo).
+- **Sem o arquivo, nada muda**: o jogo continua com o fantasma de primitivas (o modelo ainda não foi escolhido/baixado).
+- **Rastejar no teto**: se o modelo tiver um clipe `crawl`, o corpo gira de barriga para o teto (rolagem de 180° em vez de ficar de cabeça para baixo) e toca o rastejar.
+- **Otimizações (Aula 10 — remoção de faces ocultas)**, aplicadas a todo modelo carregado:
+  - *Back-face culling*: materiais "dupla face" voltam para `FrontSide`; triângulos de costas para a câmera são descartados.
+  - *Z-buffer no lugar do algoritmo do pintor*: materiais transparentes obrigam a ordenar de trás para frente (pintor) a cada quadro; texturas com recorte passam a usar `alphaTest` (opacas para o z-buffer, sem ordenação).
+  - Volume envolvente fixo para o descarte por frustum; animação em degraus (~14 quadros/s), que também dá o tranco de terror; sombra do modelo desligada no celular.
+- **`tools/optimize_models.sh`**: converte `.fbx` → `.glb` e enxuga (quantização de vértices, texturas ≤ 1024 px em WebP, poda de dados). No teste, um modelo de 2,16 MB caiu para 0,76 MB.
+- **Testado**: com um modelo de teste do repositório do three.js (soldado com idle/walk/run, **não incluído no projeto**): carregou, escalou, trocou de clipe conforme o estado, versão otimizada também carregou; sem o arquivo o jogo cai no fantasma antigo sem erros.
+- **Não testável aqui**: o modelo definitivo e o clipe de rastejar (não tenho como baixar de Mixamo/Sketchfab neste ambiente; só GitHub e npm são acessíveis), orientação/escala de um modelo específico, e o custo real no celular.
+
+### Etapa 29 — Modelos prontos no jogo: fantasma animado e braços com punhos (branch `textures-test`)
+
+Arquivos baixados pelo aluno em `modelos-brutos/` (Sketchfab + Mixamo); conversão e redução feitas aqui.
+
+- **Fantasma** (`public/models/ghost.glb`, **581 KB**, 1 676 triângulos, 1 textura WebP): modelo "Ghost Girl (Slendrina)" com esqueleto do Mixamo e 10 animações juntadas num único arquivo por `tools/merge_ghost.mjs` (FBX → GLB com `fbx2gltf`; clipes renomeados para os papéis do jogo; quantização e reamostragem). Uso no jogo: parado/encarando = *Zombie Idle*; andando = *Walking*; avanço = *Zombie Run*; **teto = *Zombie Crawl*** (corpo girado de barriga para o teto); aviso de ataque = *Zombie Attack*; possessão = *Zombie Scream*; arremessado = *Falling Back Death*; caído = *Knocked Down*; morte = *Zombie Death*. (*Hit Reaction* está no arquivo mas ainda não é usado; *Dying* ficou de fora.)
+- **Braços do jogador** (`public/models/arms.glb`, **345 KB**, ~8 400 triângulos): o modelo "George Bennings – Main Character of Lunertia" vem **sem esqueleto, com os braços pendurados e as mãos abertas**. `tools/bake_arms.mjs` separa os dois braços, reorienta cada um para o referencial do punho do jogo e **fecha a mão por código** (deformador de dobra: os vértices dos dedos giram em duas "juntas", achadas pelo perfil de largura da mão). As poses de soco por quadros-chave continuam as mesmas; só a malha mudou. Textura de cor reduzida para 1024 px em WebP (os mapas de normal/metal/altura, 3,7 MB, ficaram de fora para não pesar).
+- **Ajuste no carregador**: o tamanho do modelo passou a ser medido na pose da animação parada, considerando os ossos (a pose de repouso do arquivo do Mixamo vinha afundada e o fantasma aparecia gigante e flutuando).
+- **Peso total**: build completo com 2,5 MB (modelos 0,93 MB; texturas de imagem ~0,7 MB).
+- **Créditos (A COMPLETAR pelo aluno: autor, licença e link de cada página do Sketchfab)**:
+  - "Ghost Girl (Slendrina)" — autor: ? — licença: ? — é uma personagem de outro jogo (Slendrina, da DVloper); para publicar fora da faculdade, conferir a licença ou trocar por um fantasma genérico.
+  - "George Bennings – Main Character of Lunertia" (FirstPerson_Arms-Shirt-Watch) — autor: ? — licença: ?
+  - Animações: Mixamo (Adobe), uso livre em projetos.
+- **Testado**: capturas do fantasma parado, atacando, no teto (rastejando), em possessão, arremessado e morrendo; soco forte com os braços novos; sem erros de console; controles de toque; `npm run build`. Sem os arquivos o jogo volta às primitivas.
+- **Não testável aqui**: fluidez real das animações e das transições (só vi quadros parados), se o tranco de ~14 quadros/s agrada, se o punho fechado por código convence de todos os ângulos durante o movimento, e o desempenho no celular.
+
+### Etapa 30 — Casa nova: casarão de dois andares, mais realista e sinistro (branch `textures-test`)
+
+Pedido: "esse cenário tá muito esquisito, quero uma casa de 2 andares mais realista e sinistra" (texturas ficam de lado por enquanto). Decisões do aluno: hall de pé-direito duplo com andar de cima; fantasma em tamanho humano; casa grande.
+
+- **Planta** (32 x 24 m; diagrama no começo do bloco "CASA" em `main.js`). Térreo (pé-direito 3,4 m): **hall** de pé-direito duplo com escadaria e porta da frente, **sala de estar** com lareira, **sala de jantar** com mesa comprida, **cozinha** com bancadas, **biblioteca** e **depósito** nos fundos. Andar de cima (piso a 3,6 m, teto a 6,8 m): **galeria** com balaustrada aberta para o hall, **quarto da criança** (berço), **quarto de hóspedes**, **quarto principal**, **escritório** e **banheiro** com banheira. Portas de tamanho real (2,4 m), batentes, janelas (algumas pregadas com tábuas), retratos (um torto), vigas, teias de aranha nos cantos, sangue seco, pedaço de balaustrada caído no hall.
+- **Iluminação mais sinistra**: luz ambiente e luar reduzidos; 11 lâmpadas, só 5 acesas (lustre do hall, sala de estar em tom de brasa, cozinha fluorescente, quarto da criança, quarto principal em vermelho); as outras estão queimadas e esses cômodos ficam no escuro.
+- **Colisão com dois andares**: cada sólido agora tem base (`y0`) além do topo. Uma caixa só bloqueia quem está na altura dela (a laje não bloqueia quem anda embaixo; a parede de cima não bloqueia o térreo). Novo `ceilAt(x, z, y)` dá o teto acima de cada ponto; o chefe arremessado bate no teto do cômodo em que está, e o rastejar no teto usa o teto do andar do jogador. O jogador sobe degraus olhando um círculo em volta dos pés (`groundYR`), já que a escada real tem degraus curtos (0,3 m de altura, 0,32 m de piso).
+- **Fantasma entre andares**: flutuando, ele vai para o andar do jogador **atravessando piso e teto** (devagar, à vista), em vez de procurar a escada. Arremessado, cai pelo vão do hall normalmente.
+- **Balaustrada quebrável**: soco forte, onda de choque ou o fantasma arremessado quebram o corrimão; quem passa pelo vão cai no hall. Paredes e corrimões só quebram com golpes do mesmo andar.
+- **Fantasma em tamanho humano** (`bossScale` 1,8 → 1,05; ~1,9 m) e raio menor, para caber nas portas. Alcance vertical dos socos e dos objetos ajustado aos andares.
+- **Móveis novos**: cama, guarda-roupa (com a porta entreaberta e escuro dentro) e berço; fixos (sólidos): bancadas da cozinha, lareira, banheira. Todos os cômodos remobiliados; garrafas de cerveja e objetos novos nascem nos dois andares.
+- **Testado**: subir a escada andando (chega ao patamar a 3,6 m), andar pela galeria e entrar no quarto principal, parar no corrimão inteiro e cair pelo vão quebrado; fantasma subindo para o andar do jogador, rastejando no teto do térreo e do hall, uppercut batendo no teto baixo; capturas do hall, da galeria, da sala de estar, da cozinha e de dois quartos; controles de toque; sem erros de console; `npm run build`.
+- **Não testável aqui**: desempenho real (a casa tem bem mais peças; no teste por software ficou mais lenta para renderizar), se a luz está escura demais, se as lutas nos cômodos menores ficaram apertadas, e o fantasma atravessando o piso visto em movimento.
+
+### Etapa 31 — Sem luzes piscando do fantasma; cerveja vira vodka (bebe ao pegar, explode ao arremessar)
+
+Pedido: "remova as luzes piscando do fantasma, as garrafas devem ser de vodka, e ele deve sempre beber ao pegar (contendo a animação de beber se possível), a garrafa deve permanecer com o player, e se ele jogar deve explodir no impacto".
+
+- **Luzes**: *(corrigido na Etapa 32: o pedido era tirar as luzes coloridas do próprio fantasma, não as piscadas da casa)*.
+- **Garrafa de vodka** (novo modelo: vidro transparente, líquido, rótulo e tampa vermelhos; materiais compartilhados entre as garrafas).
+- **Bebe ao pegar**: `F` numa garrafa cheia já bebe (+25 de vida) com **animação de beber** — a garrafa sobe até a boca, o gargalo inclina para trás, a câmera inclina junto no gole e volta (quadros-chave suavizados). Enquanto bebe não dá para arremessar. A tecla `B` e o botão BEBER do celular saíram.
+- **A garrafa vazia fica na mão** (o líquido some). `F` solta; soco/clique arremessa.
+- **Explode no impacto**: arremessada, ela explode no primeiro contato (fantasma, parede, móvel ou chão): bola de fogo, fumaça, anel de choque, luz laranja (uma luz criada desde o começo e só acesa na hora, para não recompilar shaders), tremor e som. Dano no fantasma até 16 (cai com a distância) e empurrão; objetos em volta voam, móveis grandes e paredes de gesso próximos levam dano; quem estiver muito perto (inclusive você) leva 6. Parâmetros em `CFG` (`vodka*`).
+- **Testado**: pegar uma garrafa cheia (vida 50 → 75, garrafa fica vazia na mão), arremesso bloqueado durante o gole, arremesso no fantasma explodindo (≈25 de dano somando o impacto e a explosão, fantasma atordoado), capturas do gole e da explosão, controles de toque, sem erros de console, `npm run build`.
+- **Não testável aqui**: como a animação de beber fica em movimento (só vi quadros parados; a mão não acompanha a garrafa), o som da explosão e se o dano/raio estão equilibrados.
+
+### Etapa 32 — Sem luzes coloridas no fantasma, voo contido e combate mais dinâmico
+
+Pedido: "era as luzes coloridas do fantasma que era pra remover, a interação dele com as luzes da casa tavam ok, o voo do fantasma tá muito exagerado, e o combate, queria que fosse mais dinâmico".
+
+- **Luzes da casa**: voltou tudo como antes (o aviso do ataque faz as lâmpadas piscarem, o avanço apaga, golpes fortes tremem a luz, fase 2, volta do apagão).
+- **Sem luzes coloridas no fantasma**: ele não tem mais luz própria (a luz pontual azul/vermelha/laranja que iluminava o ambiente saiu) nem brilho colorido por estado; os olhos têm um brilho pálido fixo. Fica só um clarão branco rápido no corpo quando ele leva um golpe. Os avisos de ataque ficam por conta da animação, do som e das lâmpadas da casa.
+- **Voo contido**: os golpes empurram e levantam bem menos (soco forte: velocidade 78 → 18, ~7 m de deslize em vez de atravessar a casa; uppercut sobe ~1,6 m em vez de bater no teto; cruzado, esmagar e explosão reduzidos na mesma proporção) e giram menos. Ele também fica menos tempo caído (no máximo 1,4 s) e volta a atacar mais rápido.
+- **Combate mais dinâmico**:
+  - **Garras**: perto de você (≤ 2,8 m), o fantasma não espera mais o fim da perseguição: ataca com uma sequência de 2 ou 3 garradas rápidas (aviso de 0,3 s + estocada curta, 5 de dano cada), com 2,2 s de intervalo entre sequências.
+  - **Desvio do fantasma**: quando você prepara um soco forte ou uppercut perto dele, há 30% de chance (45% na fase 2) de ele saltar para o lado e o golpe errar.
+  - **Esquiva perfeita**: esquivar (Shift) bem no instante do golpe dele (fim do aviso, estocada das garras ou avanço, de perto) dá câmera lenta curta e **CONTRA-ATAQUE**: o próximo golpe que acertar em até 1 s dá dano dobrado.
+  - Perseguições mais curtas entre um ataque e outro.
+  - Parâmetros novos em `CFG` (`swipe*`, `evade*`, `perfectDodgeWindow`); textos em pt/en/es.
+- **Testado**: sequência de garras (2 golpes, dano aplicado, volta a perseguir e emenda o ataque normal), soco forte deslizando ~7 m, desvio acontecendo em 15 de 40 tentativas (~30%), esquiva perfeita durante as garras (câmera lenta + contra-ataque) e contra-ataque dobrando o dano (2 → 4), captura do fantasma no aviso sem brilho colorido, controles de toque, sem erros de console, `npm run build`.
+- **Não testável aqui**: o ritmo da luta jogando de verdade (se as garras estão frequentes demais, se a janela da esquiva perfeita é justa) e o som.
+
+### Etapa 33 — Mecânicas de luta: guarda do fantasma, quebra de guarda, agarrão e malabarismo no ar
+
+Pedido: "o soco pesado deve dar mais dano e jogar mais longe, e eu tô achando que tá faltando mecânica mais de luta: o personagem vê um fantasma e senta o sarrafo nele; por óbvio o fantasma se defende, mas não tem chance".
+
+- **Soco forte**: dano 7,2 → **12** e empurrão 18 → **32** (desliza ~15 m; volta a ter onda de choque e câmera lenta no impacto, que tinham sumido quando as velocidades foram reduzidas — o efeito agora depende da marca `big`, não da velocidade).
+- **Guarda do fantasma** (barra fina embaixo da vida dele): de pé e perto, ele levanta os braços contra os socos leves (55% de chance; 70% na fase 2). Soco que bate na guarda não tira vida, faz ele recuar um pouco e gasta guarda (jab 34, cruzado 55); a guarda se recupera sozinha quando ele não está defendendo. Defender também interrompe a sequência de garras dele.
+- **Quebra de guarda**: soco forte, uppercut ou esmagar atravessam a defesa; o 3º jab seguido também quebra. Guarda quebrada = ele cambaleia por 2,2 s e leva **+50% de dano** (barra fica vermelha, "GUARDA QUEBRADA!"). Ou seja: ele se defende, mas você sempre passa.
+- **Agarrão**: com o fantasma tonto, caído ou de guarda quebrada perto de você, **F** (PEGAR no celular) agarra pelos cabelos, ergue na sua frente se debatendo e arremessa para onde você olha (14 de dano + o impacto onde ele bater).
+- **Malabarismo no ar** (corrigido): jab/cruzado com o fantasma no ar fazem ele continuar subindo na sua frente (+50% de dano, "NO AR!"). O teste de "no ar" antes usava a altura absoluta e quebrou com o andar de cima; agora é relativo ao chão embaixo dele.
+- Desvio do fantasma contra soco forte ficou menos frequente (30% → 20%) e não acontece enquanto ele está defendendo.
+- Textos novos em pt/en/es; parâmetros em `CFG` (`guard*`, `tossDamage`).
+- **Testado**: 3 jabs contra a guarda (100 → 66 → 33 → quebra no 3º, que acerta), soco forte quebrando a guarda (18 de dano com o bônus) e arremessando ~17 m, agarrão e arremesso (14 de dano + parede), capturas da defesa e do agarrão, controles de toque, sem erros de console, `npm run build`.
+- **Não testável aqui**: o ritmo da luta jogando (chance de defesa, quanto a guarda aguenta), a pose de defesa do modelo (usa o clipe *Hit Reaction* mais lento, não uma animação de bloqueio de verdade) e o som.
+
+### Etapa 34 — Fantasma mais lento
+
+Pedido: "esse fantasma tá muito rápido, não tem como bater nele assim".
+
+- Perseguição: velocidade base 2,4 → **1,6** m/s; avanço repentino 2,3x → 1,7x; rodear 1,1x → 0,8x; recuar 1,0x → 0,6x. Perto de você ele passa mais tempo parado encarando/aproximando e recua menos (dá para chegar e bater).
+- Avanço (dash) 14 → 10 m/s; estocada das garras 8,5 → 5 m/s; salto lateral do desvio 11 → 6 m/s; rastejar no teto 2,2x → 1,8x.
+- Bônus de velocidade da fase 2 1,4x → 1,2x; no apagão 1,2x → 1,1x.
+- **Medido**: perseguindo por 8 s, média de ~1,5 m/s e pico de 2,7 m/s (você anda a 6 m/s).
+- **Não testável aqui**: se ficou lento demais ou ainda rápido jogando; os valores estão em `CFG` (`bossChaseSpeed`, `bossDashSpeed`) e no bloco da perseguição em `updateBoss`.
+
+### Etapa 35 — O player é claramente o mais forte: os truques do fantasma são vistosos, mas inúteis
+
+Pedido (retomando a ideia do início): os efeitos especiais do fantasma existem para mostrar que, mesmo com todos esses malabarismos, ele não tem chance nenhuma; o player tem que passar a ideia de ser claramente o mais forte. (As etapas 32–34 tinham deixado o fantasma ameaçador demais.)
+
+- **Ataques dele quase não machucam**: contato 3 → 1, avanço 9 → 4, garras 5 → 2, queda do teto 12 → 4, móvel possuído 6 → 2, a explosão da sua própria vodka 6 → 2. Ele continua tentando — só não adianta.
+- **Rebater móveis possuídos**: qualquer soco num móvel possuído vindo na sua direção (até ~3,6 m à sua frente) devolve o móvel voando no fantasma, mais rápido ("DEVOLVEU!"). No teste o móvel rebatido tirou 26 de vida dele e o deixou atordoado.
+- **Arrancar do teto**: com o fantasma rastejando no teto perto de você, olhar para cima e socar arranca ele de lá; ele despenca, não te machuca e fica 2 s caído ("ARRANCOU DO TETO!").
+- **Medo**: cada golpe que ele leva (e cada truque frustrado) enche um medo interno que vai baixando com o tempo. Com medo, ele foge de você em zigue-zague ou se encolhe tremendo no lugar, grita, e para de atacar com as garras quando o medo passa de 70%.
+- **Testado**: rebater (móvel possuído volta e acerta o fantasma), arrancar do teto (cai de 4,9 m, atordoado, você sem dano), medo no máximo (encolhe, depois foge de 3 m para 7,6 m), controles de toque, sem erros de console, `npm run build`.
+- **Não testável aqui**: se a sensação de "player muito mais forte" chegou no ponto certo jogando, e se o fantasma ficou fácil demais.
+
+### Etapa 36 — Barra de medo
+
+- Barra "MEDO" embaixo da vida e da guarda do fantasma: mostra o medo interno da Etapa 35 (sobe a cada golpe, ao rebater móveis e ao arrancá-lo do teto; baixa sozinha quando você para de bater). Acima de 70% (quando ele para de atacar com as garras) a barra fica branca e brilha. Texto traduzido (Medo/Fear/Miedo).
+- **Testado**: capturas no computador e no celular com o medo em 80%, sem erros de console, `npm run build`.
+
+### Etapa 37 — Medo mais fácil de encher, mais lento para passar e bem visível
+
+Pedido: "o medo precisa diminuir mais devagar, é muito difícil assustar esse fantasma assim, quero que fique mais visível que ele tá com medo".
+
+- **Enche mais**: cada golpe 6 → **10**; golpes pesados (soco forte, uppercut, esmagar, agarrão) +8 extra; **destruir a casa perto dele também assusta** (parede quebrada +5, móvel grande +4, objeto pequeno +2).
+- **Passa devagar**: depois de cada susto o medo fica parado por 3 s, e só então baixa a 1,2 por segundo (era 4/s direto). No teste: 5 golpes levaram o medo de 0 a 100; parado, ele caiu só de 60 para 50 em 10 s.
+- **Visível**:
+  - o corpo **treme** (mais forte quanto mais medo);
+  - **fugindo, ele vira de costas e corre** de você (antes andava de ré olhando para você);
+  - **encolhido**, fica agachado tremendo com os braços na frente do rosto;
+  - **choraminga e solta gritinhos** de tempos em tempos (mais frequentes com mais medo);
+  - foge/se encolhe com mais frequência (até 90% das escolhas dele com o medo cheio);
+  - o nome da barra muda: **MEDO → COM MEDO (35%) → APAVORADO! (70%)**, brilhando.
+- **Testado**: medo subindo com socos, caindo devagar, capturas dele encolhido e fugindo de costas com "APAVORADO!", sem erros de console, `npm run build`.
+- **Não testável aqui**: o som dos choramingos e se a tremedeira fica boa em movimento.
+
+### Etapa 38 — Apavorado não ataca
+
+Pedido: "o fantasma continua atacando quando está com o medo cheio".
+
+- Antes, o medo alto só bloqueava as garras; o ataque normal (aviso + avanço), o reaparecer atrás de você, o teto, a possessão, o apagão e o contato ainda aconteciam.
+- Agora, com o medo em **70% ou mais** ("APAVORADO!", `CFG.fearNoAttack`), ele **não ataca de jeito nenhum**: só foge de costas ou se encolhe tremendo. De vez em quando ele some e **reaparece longe de você** (9–15 m) para fugir, sem atacar ao reaparecer. Encostar nele não machuca.
+- Se ficar apavorado **no meio de um ataque**, ele desiste na hora: o aviso/garras/avanço viram fuga, os móveis que ele estava levitando caem no chão, e do teto ele despenca de medo (sem te machucar).
+- **Testado**: 20 s com o medo travado em 100 e você parado ao lado dele — nenhum ataque, sua vida continuou 100; ficando apavorado no meio do aviso, ele desistiu no quadro seguinte; sem erros de console; `npm run build`.
+
+### Etapa 39 — Meio-termo do medo: ciclo de pavor e desespero
+
+Pedido: "agora ele nunca mais ataca, tá sempre apavorado, tem que achar um meio termo".
+
+- **Enche menos**: golpe 10 → 6; golpe pesado +8 → +5; destruição perto dele +5/+4/+2 → +3/+2/+1. Com medo médio ele foge/se encolhe menos vezes (chance = medo × 0,75).
+- **Passa mais rápido**: segura 3 s → 1,5 s e depois baixa 1,2/s → 3/s.
+- **Apavorado só a partir de 80%** (era 70%).
+- **Desespero**: apavorado por mais de 4 s (mesmo apanhando), ele "cria coragem" encurralado — grita, aparece "ELE SE DESESPEROU!", o medo cai para 35 e ele parte para cima com um ataque rápido. Nos 4 s seguintes ele se assusta pela metade, para não voltar a apavorar na hora.
+- Resultado: um ciclo — você bate, ele fica com medo, apavora e foge, se desespera e ataca de novo.
+- **Testado** (simulação de 25 s batendo sem parar, um golpe a cada 0,7 s): o medo subiu até 100 em ~9 s, ele se desesperou 2 vezes (medo voltou a 35), atacou 4 vezes e sua vida ficou em 96; sem erros de console; `npm run build`.
+- **Não testável aqui**: se o ciclo está no ritmo certo jogando; os números estão em `CFG` (`fear*`, `terrorMax`, `calmAfterSnap`).
+
+### Etapa 40 — Melhorias para o celular: desempenho, mira assistida, segurar para socar, vibração
+
+Pedido: deixar o jogo bom no celular (no PC a jogabilidade já está boa).
+
+- **Menos chamadas de desenho** (o que mais pesa no celular). Medido na emulação de celular, na posição inicial: **712 → 294** chamadas por quadro (−59%), sem mudar o visual.
+  - *Cenário fixo juntado* (`mergeStatic`): tudo que é fixo e usa o mesmo material (paredes, batentes, balaústres, molduras, janelas, vigas, teias, fios das lâmpadas, decalques) vira uma única malha: as geometrias são copiadas com a transformação de cada peça já aplicada (`matrixWorld`) e concatenadas (`mergeGeometries`). 402 peças → 62 malhas. Ficam de fora o que muda durante o jogo: paredes de gesso e corrimãos (quebram) e as lâmpadas.
+  - *Móveis juntados por material* (`mergePropParts`): cada móvel tem várias peças (uma estante tem dezenas de livros); as do mesmo material viram uma malha no espaço do próprio móvel. As peças originais ficam guardadas fora da cena e voltam como destroços quando o móvel quebra (a quebra continua igual). Peças de móveis desenhadas: 694 → 320.
+  - Molduras dos quadros e fios das lâmpadas passaram a compartilhar um material (antes cada um tinha o seu e não dava para juntar).
+- **Luzes no celular**: só 3 lâmpadas com luz de verdade (lustre do hall, sala, cozinha) em vez de 5.
+- **Mira assistida** (só no toque): ao socar com o fantasma a até 4,5 m e até ~43° fora da mira, a câmera gira rápido até ele.
+- **Segurar SOCO** repete o combo sozinho.
+- **Vibração** (Android): leve nos golpes, mais forte nos pesados, na quebra de guarda e na explosão da vodka, e um padrão duplo quando você leva dano.
+- **Testado**: contagem de chamadas antes/depois, capturas do hall e da cozinha (visual igual), quebra de estante (as 22 peças originais viraram destroços), mira assistida (olhando 35° ao lado, girou até o fantasma e acertou), segurar SOCO (4 socos seguidos), controles de toque, sem erros de console, `npm run build`.
+- **Não testável aqui**: quadros por segundo reais num celular, a vibração e o conforto da mira assistida.
+
+### Etapa 41 — Novo modelo do fantasma (Samara/Sadako)
+
+Pedido: o aluno trocou o personagem no Mixamo e baixou as animações de novo em `modelos-brutos/`; aplicar.
+
+- Novo modelo: "Samara (The Ring)" — `sadako_low_seperated.fbx`, com vestido branco, corpo e cabelo comprido preto caindo sobre o rosto, cada um com sua textura de cor (os mapas de normal/metal/rugosidade ficaram de fora para não pesar).
+- `tools/merge_ghost.mjs` atualizado: aplica a textura certa em cada material pelo nome (`Dress_low`, `Hair_low`, `Body_low`) e **simplifica a malha** (`simplify` do meshoptimizer via gltf-transform): 40 mil → **21,8 mil triângulos** (−45%), para não pesar no celular.
+- Animações novas (do mesmo personagem): parado, andando, correndo, rastejando, ataque, grito, levando golpe, caindo para trás, caído. A morte usa *Zombie Death*, baixado de novo com o novo personagem.
+- `public/models/ghost.glb`: 1,41 MB (o anterior, 0,58 MB, tinha 1,7 mil triângulos). Build total: ~3,3 MB.
+- **Testado**: carregou, tamanho certo, troca de clipe conforme o estado (parado, teto rastejando, caído), capturas de frente e no teto, sem erros de console, `npm run build`.
+- **Créditos (A COMPLETAR)**: autor, licença e link da página do Sketchfab do modelo "Samara The Ring". É uma personagem de filme (*O Chamado*): ok para o trabalho da faculdade; para publicar abertamente, conferir a licença.
+- **Não testável aqui**: as animações em movimento e o desempenho do modelo mais detalhado num celular real.
+
+### Etapa 42 — Animações do modelo corrigidas e fantasma sem atravessar o jogador
+
+Pedido: "as animações do fantasma tão meio esquisitas e o fantasma tá passando por dentro do personagem".
+
+- **Corpo girando por cima da animação** (a causa principal): quando arremessado/caído, o jogo girava o corpo inteiro como corpo rígido (cambalhota, deitar 90°) **e** ao mesmo tempo tocava os clipes de queda/caído — que já deitam o corpo. Resultado: ele ficava de pé, torto ou de cabeça para baixo. Com o modelo, agora só a animação deita/levanta; o corpo só gira em torno do eixo vertical (as primitivas antigas continuam com a física de giro).
+- **Patinação**: o passo agora acompanha a velocidade real (parado → *idle*, devagar → andar com a cadência ajustada, rápido → correr).
+- **De ré e de lado**: rodeando ou recuando, ele vira para onde está indo (antes andava de lado/de ré olhando para você, com a animação de andar para a frente tocando ao contrário).
+- **Sem o "tranco"**: a animação em degraus de 14 quadros/s ficava estranha com o modelo novo; agora é contínua.
+- **Menos deformação**: o achatar/esticar do golpe é bem menor no modelo (8% em vez de 35%).
+- **Não atravessa o jogador**: os dois têm corpo; se encostarem, o fantasma é empurrado para fora (distância mínima 1,05 m). O avanço dele termina ao trombar em você (e ele fica atordoado).
+- **Testado**: capturas dele rodeando (virado para onde anda), no soco forte e caído; aproximação e avanço nunca chegaram a menos de 1,05 m; sem erros de console; `npm run build`.
+- **Não testável aqui**: as animações em movimento (só vi quadros parados).
+
+### Etapa 43 — Limpeza e junção na main
+
+- Animação de morte do novo fantasma (*Zombie Death* do mesmo personagem) incluída no `ghost.glb`.
+- `modelos-brutos/` (fora do git pelo `.gitignore`) limpo: apagados os downloads sem uso (outros modelos de fantasma testados, *Dying* e arquivos do personagem antigo); ficaram só os FBX das animações atuais, o modelo da Samara e o dos braços (129 MB → 17 MB).
+- Trabalho da branch `textures-test` commitado e levado para a `main`.
+
 ## Próximas etapas (a decidir)
 
 - Jogar e equilibrar: `bossMaxHp`, `punchDamage`, `heavyDamage`, `wallSlamDamage`, `heavyCooldown`, `propLaunch`, `throwSpeed` no `CFG` (o hot reload ajuda).

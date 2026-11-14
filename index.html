@@ -33,6 +33,7 @@
     #menu button { display: block; width: 100%; margin: 8px 0; padding: 12px; font-size: 18px; font-weight: 700; letter-spacing: 1px; cursor: pointer;
                    color: #fff; background: #3a2d6b; border: 2px solid #8d86b8; }
     body:not(.fsok) #btnFs { display: none !important; }
+    body:not(.touch) .touchonly { display: none !important; }
     #menu button:hover, #menu button:focus { background: #5a46a8; outline: none; }
     #menu #btnPlay { background: #b3265e; border-color: #ff7ab0; }
     #menu #btnPlay:hover, #menu #btnPlay:focus { background: #d43275; }
@@ -60,6 +61,61 @@
     #over { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column;
             color: #fff; background: rgba(0,0,0,.65); font-size: 28px; }
     #over small { font-size: 16px; margin-top: 10px; color: #bbb; }
+    /* ---------- TEMA SOMBRIO (branch textures-test): preto, osso e sangue seco; serifa antiga; nada de rosa/roxo ---------- */
+    html, body { background: #030203; font-family: Georgia, 'Times New Roman', 'Noto Serif', serif; }
+    #hud { color: #b9ae9c; letter-spacing: 2px; text-transform: uppercase; font-size: 13px; text-shadow: 0 0 8px #000, 0 1px 0 #000; }
+    #hud .bar { background: #0a0606; border: 1px solid #3d2f28; box-shadow: 0 0 10px #000, inset 0 0 6px #000; }
+    #hud .bar > div { background: linear-gradient(#8e1216, #4a0608); box-shadow: inset 0 -3px 4px rgba(0,0,0,.6); }
+    #boss { color: #b9ae9c; }
+    #bossName { letter-spacing: 6px; font-size: 13px; color: #9c9284; text-shadow: 0 0 10px #000, 0 0 3px #5a0608; }
+    #bossBar { background: #070505; border: 1px solid #4a3a30; box-shadow: 0 0 14px #000, inset 0 0 8px #000; }
+    #bossHp { background: linear-gradient(#a9b3ad, #5d6661); box-shadow: inset 0 -4px 5px rgba(0,0,0,.55); }
+    #bossHp.p2 { background: linear-gradient(#a01418, #4a0507); box-shadow: 0 0 12px #7a0a0e, inset 0 -4px 5px rgba(0,0,0,.55); }
+    #bossBar .mark { background: #000a; }
+    #cross { border: 1px solid #b9ae9caa; width: 6px; height: 6px; margin: -3px 0 0 -3px; }
+    #hurt { background: radial-gradient(ellipse at center, transparent 30%, #5c0306 115%); }
+    #warnL { background: linear-gradient(to right, #6e0508cc, transparent); }
+    #warnR { background: linear-gradient(to left, #6e0508cc, transparent); }
+    #menu { background: radial-gradient(ellipse at center, rgba(8,4,4,.82) 0%, rgba(0,0,0,.96) 75%); backdrop-filter: blur(3px) grayscale(.6); color: #b9ae9c; }
+    #menu .panel { background: linear-gradient(#0c0808, #060404); border: 1px solid #3a2a24; outline: 1px solid #120b0a; outline-offset: 5px;
+                   box-shadow: 0 0 90px #000, inset 0 0 60px #000; }
+    #menu h1 { font-weight: 400; letter-spacing: 9px; color: #c9bfae; text-shadow: 0 0 18px #6e0508, 0 2px 0 #1c0203; }
+    #menu h1::after { content: ''; display: block; height: 1px; margin: 12px auto 0; width: 70%; background: linear-gradient(to right, transparent, #6e0a0d, transparent); }
+    #menu #menuSub { color: #6f665b; font-style: italic; letter-spacing: 1px; }
+    #menu button { font-family: inherit; font-weight: 400; letter-spacing: 4px; text-transform: uppercase; font-size: 15px;
+                   color: #a59b8b; background: #0b0707; border: 1px solid #3a2a24; transition: background .25s, color .25s, box-shadow .25s; }
+    #menu button:hover, #menu button:focus { background: #160a0a; color: #d8cfbe; box-shadow: inset 0 0 18px #3a0507; }
+    #menu #btnPlay { background: linear-gradient(#4f0709, #2a0304); border-color: #7a1014; color: #d8cfbe; box-shadow: 0 0 22px rgba(110,5,8,.35); }
+    #menu #btnPlay:hover, #menu #btnPlay:focus { background: linear-gradient(#6e0a0d, #3a0406); box-shadow: 0 0 30px rgba(140,10,14,.5); }
+    #menu .opt { color: #8f8577; }
+    #menu .opt input { accent-color: #7a1014; }
+    #menu .opt select { background: #0b0707; color: #b9ae9c; border: 1px solid #3a2a24; font-family: inherit; }
+    #menu .opt span { color: #b9ae9c; }
+    #menu table { color: #6f665b; }
+    #menu td { border-top: 1px solid #1c1412; }
+    #menu td:first-child { color: #a59b8b; }
+    #menu #menuMsg { color: #b0393d; }
+    #menu p.touchonly { color: #7d7366 !important; }
+    .mv { color: #5a5148; letter-spacing: 2px; font-size: 10px; }
+    .mv .track { background: #070505; border: 1px solid #2e2420; }
+    .mv .track > div { background: #3a2c2a; }
+    .mv.ready { color: #b9ae9c; }
+    .mv.ready .track > div { background: #8e1216; box-shadow: 0 0 8px #6e0508; }
+    #moveName { font-weight: 400; letter-spacing: 8px; color: #d8cfbe; text-shadow: 0 0 14px #8e0a0e, 0 2px 0 #2a0304; }
+    #combo { color: #a3161a; font-weight: 400; text-shadow: 0 0 14px #000, 0 2px 0 #1c0203; }
+    #prompt { color: #c9bfae; font-style: italic; letter-spacing: 1px; text-shadow: 0 0 8px #000, 0 1px 0 #000; }
+    #help { color: #4f473f; font-size: 12px; font-style: italic; }
+    #over { background: radial-gradient(ellipse at center, rgba(20,2,3,.72), rgba(0,0,0,.95)); color: #c9bfae; letter-spacing: 8px; text-transform: uppercase; text-shadow: 0 0 22px #8e0a0e; }
+    #over small { color: #6f665b; letter-spacing: 2px; text-transform: none; font-style: italic; text-shadow: none; }
+    #fearRow { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+    #fearLabel { font-size: 10px; letter-spacing: 3px; color: #8f8577; text-transform: uppercase; text-shadow: 0 0 6px #000; }
+    #fearBar { flex: 1; height: 6px; background: #070505; border: 1px solid #2e2420; }
+    #fearLabel.high { color: #e8ecf2; text-shadow: 0 0 8px #cfd6e0; }
+    #bossFear { height: 100%; width: 0%; background: linear-gradient(to right, #6b6f78, #d8dde6); transition: width .15s; }
+    #bossFear.high { background: linear-gradient(to right, #9aa0aa, #ffffff); box-shadow: 0 0 8px #cfd6e0; }
+    #guardBar { height: 4px; margin-top: 3px; background: #070505; border: 1px solid #2e2420; }
+    #bossGuard { height: 100%; width: 100%; background: #b9ae9c; transition: width .1s; }
+    #bossGuard.broken { background: #8e1216; }
     /* celular em paisagem: barras e textos menores para não cobrir a tela */
     @media (max-height: 480px) {
       #hud { top: 6px; left: 8px; font-size: 12px; }
@@ -81,6 +137,8 @@
   <div id="boss">
     <div id="bossName"></div>
     <div id="bossBar"><div id="bossHp"></div><span class="mark"></span></div>
+    <div id="guardBar"><div id="bossGuard"></div></div>
+    <div id="fearRow"><span id="fearLabel"></span><div id="fearBar"><div id="bossFear"></div></div></div>
   </div>
   <div id="cross"></div>
   <div id="hurt"></div>
@@ -107,6 +165,7 @@
       <div class="opt" style="grid-template-columns:auto 1fr"><input type="checkbox" id="optSlow" checked><label for="optSlow" data-i18n="slow"></label></div>
       <div class="opt" style="grid-template-columns:auto 1fr"><input type="checkbox" id="optStop" checked><label for="optStop" data-i18n="hitstop"></label></div>
       <div class="opt" style="grid-template-columns:auto 1fr"><input type="checkbox" id="optShadow" checked><label for="optShadow" data-i18n="shadows"></label></div>
+      <div class="opt" style="grid-template-columns:auto 1fr"><input type="checkbox" id="optTex" checked><label for="optTex" data-i18n="textures"></label></div>
       <div class="opt"><label for="optVol" data-i18n="vol"></label><input type="range" id="optVol" min="0" max="1" step="0.05" value="0.7"><span id="optVolV">70%</span></div>
       <div class="opt"><label for="optFov" data-i18n="fov"></label><input type="range" id="optFov" min="60" max="110" step="1" value="80"><span id="optFovV">80°</span></div>
       <div class="opt"><label for="optLang" data-i18n="lang"></label><select id="optLang"><option value="auto"></option><option value="pt">Português</option><option value="en">English</option><option value="es">Español</option></select><span></span></div>
